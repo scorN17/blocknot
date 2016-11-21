@@ -1,5 +1,28 @@
 <?php
 
+/*
+block-not-ru@yandex.ru
+D_nfX29970S0
+Киногерой: HofEIp_tqy1d
+*/
+
+
+
+/*
+Удалять временные файлы заказа при оформлении заказа
+Изменять в таблице Basket - params_options_ratio
+Выключать товар в корзине если в категории изменился состав опций
+функция получения опций для категории - GROUP BY ido ORDER BY IF(default='y',0,1), ratio
+Доработать RATIO
+getOptions() - не считает ratio
+*/
+
+
+
+
+
+
+
 function YaKa($info)
 {
 	$infos= array(
@@ -21,6 +44,104 @@ function _AJAX()
 
 
 
+	
+	if($action=='shopBasketFileDelete')
+	{
+		$id= intval($_GET['id']);
+		$code= getShopOrderStatus_1();
+		$nc_core->db->query("UPDATE BN_Shop_Order_Files SET enabled='n' WHERE code='{$code}' AND id={$id} LIMIT 1");
+		print shopBasketPage_Data(true);
+	}
+
+	if($action=='shopBasketFiles')
+	{
+		print shopBasketPage_Data(true);
+	}
+	
+	if($action=='fileChunkUpload')
+	{
+		$fs= intval($_GET['fs']);
+		$ii= intval($_GET['ii']);
+		$cc= intval($_GET['cc']);
+		$kk= intval($_GET['kk']);
+		$chunk= $_POST['chunkblob'];
+		if(strpos($chunk,',') !== false) $chunk= substr($chunk,strpos($chunk,',')+1);
+		$chunk= base64_decode($chunk);
+		
+		// usleep($kk*300000); //0.3 секунды
+		// usleep($kk*10000); //0.01 секунды
+		
+		$code= getShopOrderStatus_1();
+		
+		$tmpfolder= '/assets/tmp/'.$code.'/';
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder)) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder, 0777, true);
+		
+		$fn= trim(urldecode($_GET['fn']));
+		$fn= generAlias($fn);
+		$fn= $fs.'_'.$fn;
+		
+		clearstatcache();
+		
+		$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$kk, 'w');
+		fwrite($fo, $chunk);
+		fclose($fo);
+		
+		$chunkssizesum= 0;
+		for($ww=0; $ww<$cc; $ww++)
+		{
+			$chunkssizesum += filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+		}
+		
+		if($chunkssizesum<$fs)
+		{
+			print $chunkssizesum;
+		}else{
+			print 'lastchunk';
+			
+			$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn, 'w');
+			if($fo)
+			{
+				flock($fo, LOCK_EX);
+				for($ww=0; $ww<$cc; $ww++)
+				{
+					$fo2= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww, 'r');
+					$contents= fread($fo2, filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww));
+					fwrite($fo, $contents);
+					fclose($fo2);
+					unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+				}
+				fclose($fo);
+			}
+			
+			if(filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn)==$fs)
+			{
+				$row= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$code}' AND `name`='{$fn}' LIMIT 1", ARRAY_A);
+				if(is_array($row) && count($row))
+				{
+					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET enabled='y' WHERE code='{$code}' AND `name`='{$fn}' LIMIT 1");
+				}else{
+					$nc_core->db->query("INSERT INTO BN_Shop_Order_Files SET code='{$code}', `name`='{$fn}'");
+				}
+				
+				$diskpath= '/ORDERS/'.$code.'/';
+				$diskresponse= disk('resources/?path='.urlencode($diskpath));
+				if($diskresponse[0]['http_code']!=200)
+				{
+					$diskresponse= disk('resources/?path='.urlencode($diskpath), 'PUT');
+				}
+				$diskresponse= disk('resources/?path='.urlencode($diskpath.$fn));
+				if($diskresponse[0]['http_code']!=200 || $diskresponse_arr['size']!=$fs)
+				{
+					$diskresponse= disk('resources/upload/?overwrite=true&path='.urlencode($diskpath.$fn));
+					$diskresponse_arr= json_decode($diskresponse[1], true);
+					$diskuploadhref= $diskresponse_arr['href'];
+					$diskresponse= disk($diskuploadhref, 'PUT', true, $nc_core->DOCUMENT_ROOT.$tmpfolder.$fn);
+				}
+			}
+		}
+	}
+
+
 
 
 	if($_POST['action']=='checkOrder' || $_POST['action']=='paymentAviso')
@@ -28,7 +149,7 @@ function _AJAX()
 		$postaction= $_POST['action'];
 
 		$md5= strtoupper($_POST['md5']);
-		$mymd5= strtoupper(md5("checkOrder;100.00;{$_POST[orderSumCurrencyPaycash]};{$_POST[orderSumBankPaycash]};".YaKa('shopid').";".YaKa('scid').";{$_POST[invoiceId]};{$_POST[customerNumber]};".YaKa('shoppassword')));
+		$mymd5= strtoupper(md5("checkOrder;100.00;{$_POST[orderSumCurrencyPaycash]};{$_POST[orderSumBankPaycash]};".YaKa('shopid').";{$_POST[invoiceId]};{$_POST[customerNumber]};".YaKa('shoppassword')));
 
 		header('Content-Type: application/xml');
 		if($mymd5==$md5) $responsecode= '0'; else $responsecode= '1';
@@ -88,61 +209,159 @@ function _AJAX()
 	}
 
 
+	if($action=='shopAction')
+	{
+		$id= intval($_GET['id']);
+		$prm= $_GET['p'];
+		$vl= $_GET['vl'];
+		$code= getShopOrderStatus_1();
+
+		if($_GET['a2']=='count')
+		{
+			$count= intval($vl);
+			if($count<1) $count= 1;
+			if($count>99999) $count= 99999;
+			$nc_core->db->query("UPDATE BN_Shop_Basket SET `count`={$count} WHERE code='{$code}' AND id={$id} LIMIT 1");
+			shopBasketCheck_Sum();
+			print shopBasketPage_Items();
+		}
+
+		if($_GET['a2']=='delete')
+		{
+			$nc_core->db->query("DELETE FROM BN_Shop_Basket WHERE code='{$code}' AND id={$id} LIMIT 1");
+			shopBasketCheck_Sum();
+			print shopBasketPage_Items();
+		}
+
+		if($_GET['a2']=='clear')
+		{
+			$nc_core->db->query("DELETE FROM BN_Shop_Basket WHERE code='{$code}'");
+			shopBasketCheck_Sum();
+			print shopBasketPage_Items();
+		}
+
+		if($_GET['a2']=='savedata')
+		{
+			$prm= trim(urldecode($_GET['p']));
+			$val= trim(urldecode($_GET['vl']));
+			if($prm=='phone') $val= '+'.preg_replace("/[^0-9]/",'',$val);
+			$prm= $nc_core->db->escape($prm);
+			$val= $nc_core->db->escape($val);
+			$nc_core->db->query("UPDATE BN_Shop_Order SET `{$prm}`='{$val}' WHERE code='{$code}' LIMIT 1");
+		}
+
+		if($_GET['a2']=='get_itogo')
+		{
+			print shopBasketPage_Checkout();
+		}
+
+		if($_GET['a2']=='set_payment')
+		{
+			$nc_core->db->query("UPDATE BN_Shop_Order SET payment='{$prm}' WHERE code='{$code}' LIMIT 1");
+		}
+
+		if($_GET['a2']=='set_delivery')
+		{
+			if($prm=='rnd')
+			{
+				$delivery= 'pvz';
+				$address= '';
+				$pvz= '0';
+			}elseif($prm=='address'){
+				$delivery= 'address';
+				$address= '';
+				$pvz= '0';
+			}else{
+				$delivery= 'pvz';
+				$address= '';
+				$pvz= intval($prm);
+				$row= $nc_core->db->get_results("SELECT Address FROM BN_CDEK_City_Points WHERE id='{$pvz}' AND enabled='y' LIMIT 1", ARRAY_A);
+				if(is_array($row) && count($row)) $address= $row[0]['Address'];
+				else $pvz= false;
+			}
+			if($pvz!==false)
+			{
+				$address= $nc_core->db->escape($address);
+				$nc_core->db->query("UPDATE BN_Shop_Order SET delivery='{$delivery}', address='{$address}', pvz='{$pvz}' WHERE code='{$code}' LIMIT 1");
+			}
+			shopBasketCheck_Sum();
+		}
+	}
+
 	if($action=='shopAddToBasket')
 	{
+		shopBasketCheck_Table();
+		shopBasketCheck_Items();
+
 		$catid= intval($_GET['catid']);
 		$edition= intval($_GET['edition']);
 		$options= $_POST['option'];
 
 		if($catid && $edition)
 		{
-			$ratio= getOptions($catid, $options);
-			if($ratio===1) $ratio= getDefaultOptionRatio($catid);
-
-			$row= $nc_core->db->get_results("SELECT cc.id AS ccid, ee.id AS eeid, ee.edition, cc.name, ee.price FROM BN_PG_Catalog AS cc
+			$row= $nc_core->db->get_results("SELECT cc.id AS ccid, ee.id AS eeid, ee.edition, cc.name, cc.description, ee.price FROM BN_PG_Catalog AS cc
 				INNER JOIN BN_PG_Catalog_Edition AS ee ON ee.idi=cc.id
 					WHERE cc.parent={$catid} AND ee.id={$edition} AND ee.enabled='y' AND cc.enabled='y' LIMIT 1", ARRAY_A);
 			if(is_array($row) && count($row))
 			{
 				$row= $row[0];
-				$row['price'] *= $ratio;
-				$row['price']= round($row['price']);
 
-				$uniq= $row['name'] . $row['edition'] . $row['price'];
+				$uniq= $row['name'] . $row['edition'];
 
-				$user= $nc_core->db->escape('s'.session_id());
-				$row['name']= $nc_core->db->escape($row['name']);
-				$row['edition']= $nc_core->db->escape($row['edition']);
+				$params['description']= $row['description'];
 
-				$getOptions= getOptions($catid, $options, 'info');
-				if(is_array($getOptions) && count($getOptions))
+				$options= getOptions($catid, $options);
+				if( ! $options) exit();
+				$ratio= $options[0];
+				$option= $options[1];
+				if(is_array($option) && count($option))
 				{
-					foreach($getOptions AS $row2)
+					foreach($option AS $row2)
 					{
-						$options_info[]= array(
+						$options_info[$row2['ido']]= array(
+							'id'          => $row2['id'],
+							'ido'         => $row2['ido'],
 							'type'        => $row2['type'],
 							'name'        => $row2['name'],
 							'subname'     => $row2['subname'],
 							'ratio'       => $row2['ratio']
 						);
-						$uniq .= $row2['type'] . $row2['name'] . $row2['subname'] . $row2['ratio'];
+						$uniq .= $row2['type'] . $row2['name'] . $row2['subname'];
+					}
+					$params['options']= $options_info;
+				}
+
+				$price= getShopBasketItemPrice($catid, $row['ccid'], $edition, $ratio);
+
+				$category= getIdLvl(183, $catid, false, 'Subdivision_Name');
+				if(is_array($category) && count($category))
+				{
+					foreach($category AS $key2=>$row2)
+					{
+						if($key2>=2) $categorytxt .= (!empty($categorytxt)?"\n":'').$row2['Subdivision_Name'];
 					}
 				}
-				$params['options']= $options_info;
+
+				$code= getShopOrderStatus_1();
+				$uniq= md5($uniq);
+
+				$row['name']= $nc_core->db->escape($row['name']);
+				$row['edition']= $nc_core->db->escape($row['edition']);
 				$params= serialize($params);
 				$params= $nc_core->db->escape($params);
-
-				$uniq= md5($uniq);
-				$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE user='{$user}' AND itemid={$row[ccid]} AND uniq='{$uniq}' LIMIT 1", ARRAY_A);
+				$categorytxt= $nc_core->db->escape($categorytxt);
+				
+				$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND itemid={$row[ccid]} AND uniq='{$uniq}' LIMIT 1", ARRAY_A);
 				if(is_array($rr) && count($rr))
 				{
 					$nc_core->db->query("UPDATE BN_Shop_Basket SET count=count+1 WHERE id={$rr[0][id]} LIMIT 1");
 				}else{
-					$nc_core->db->query("INSERT INTO BN_Shop_Basket SET user='{$user}', itemid={$row[ccid]}, title='{$row[name]}', count=1,
-						ed='{$row[edition]}', ratio='{$ratio}', price='{$row[price]}', params='{$params}', dt=".time().", uniq='{$uniq}'");
+					$nc_core->db->query("INSERT INTO BN_Shop_Basket SET code='{$code}', catid={$catid}, category='{$categorytxt}', itemid={$row[ccid]}, title='{$row[name]}', count=1,
+						edid={$row[eeid]}, ed='{$row[edition]}', price='{$price}', params='{$params}', dt=".time().", uniq='{$uniq}'");
 				}
 			}
 		}
+		shopBasketCheck_Sum();
 	}
 
 	if($action=='catalogSetOption')
@@ -150,8 +369,8 @@ function _AJAX()
 		$catid= intval($_POST['catid']);
 		$editions_large= ($_POST['editions_large']=='y'?true:false);
 		$options= $_POST['option'];
-		$ratio= getOptions($catid, $options);
-		print _CATALOG($catid, true, $ratio, $editions_large);
+		$options= getOptions($catid, $options);
+		print _CATALOG($catid, true, $options[0], $editions_large);
 	}
 
 	if($action=='shopHeaderBasket')
@@ -197,7 +416,7 @@ function paymentForm()
 
 //--------------------------- CATALOG ------------------------------------------
 
-function _CATALOG($id, $onlytable=false, $ratio=1, $editions_large=false)
+function _CATALOG($id, $onlytable=false, $ratio=false, $editions_large=false)
 {
 	global $nc_core;
 
@@ -258,7 +477,7 @@ function _CATALOG($id, $onlytable=false, $ratio=1, $editions_large=false)
 	{
 		foreach($subCategories AS $key=>$row)
 		{
-			if($ratio===1) $ratio= getDefaultOptionRatio($row['id']);
+			if( ! $ratio){ $ratio= getOptions($row['id']); $ratio= $ratio[0]; }
 
 			$subinfo= $nc_core->subdivision->get_by_id($row['id']);
 
@@ -444,86 +663,6 @@ function _CATALOG($id, $onlytable=false, $ratio=1, $editions_large=false)
 
 	return $pp;
 }
-//--------------------------- CATALOG ------------------------------------------
-
-function shopBasketItemExists($itemid)
-{
-
-}
-
-function shopBasketItemsList()
-{
-	global $nc_core;
-
-	$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Basket WHERE user='".$nc_core->db->escape('s'.session_id())."' ORDER BY dt", ARRAY_A);
-	if(is_array($rr) && count($rr)) return $rr;
-	return false;
-}
-
-function shopHeaderBasket()
-{
-	$items= shopBasketItemsList();
-	$sum= 0;
-	if($items) foreach($items AS $row) $sum += round($row['count'] * $row['price']);
-	return ($sum ? '<span>'.Price($sum).'</span> <span class="ruble">руб</span>' : '<span>Корзина</span>');
-}
-
-function getDefaultOptionRatio($id)
-{
-	global $nc_core;
-
-	$ratio= 1;
-	$rr= $nc_core->db->get_results("SELECT ratio FROM BN_PG_Catalog_Option WHERE parent={$id} AND `default`='y' AND enabled='y' ORDER BY ido", ARRAY_A);
-	if(is_array($rr) && count($rr))
-	{
-		foreach($rr AS $row)
-		{
-			$ratio *= $row['ratio'];
-		}
-	}
-	return $ratio;
-}
-
-function getOptions($id, $options, $result='ratio')
-{
-	global $nc_core;
-
-	$ratio= 1.0;
-	if($id)
-	{
-		if(is_array($options) && count($options))
-		{
-			$qq= "";
-			foreach($options AS $key=>$row)
-			{
-				$key= intval($key);
-				$row= intval($row);
-				if($key>=0 && $row)
-				{
-					$qq .= (!empty($qq)?" OR ":"")."(ido={$key} AND id={$row})";
-				}
-			}
-			if($qq)
-			{
-				$options_rr= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$id} AND ({$qq}) AND enabled='y' ORDER BY ido", ARRAY_A);
-				if(is_array($options_rr))
-				{
-					if(count($options_rr)==count($options))
-					{
-						if($result=='info') return $options_rr;
-
-						foreach($options_rr AS $row)
-						{
-							$ratio *= floatval($row['ratio']);
-						}
-					}
-				}
-			}
-		}
-	}
-	return $ratio;
-}
-
 function getMainCategoryColor($mcid=0, $type=0)
 {
 	$colors= array(
@@ -543,7 +682,561 @@ function getMainCategory($Subdivision_ID)
 }
 
 
+function getOptions($catid, $setoptions=false, $basketoptions=false)
+{
+	global $nc_core;
+	$catid= intval($catid);
+	$defoptions= array();
+	$options= array();
+	$ratio= 1.0;
+	
+	$rr= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$catid} AND enabled='y' GROUP BY ido ORDER BY IF(`default`='y',0,1), ii", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		foreach($rr AS $row)
+		{
+			$defoptions[$row['ido']]= array($row['id'], ($row['type']!='checkbox' || $row['default']=='y'?true:false), false, $row['type']); // array(option_id, учитывать ratio, определено, option_type);
+			if($row['type']!='checkbox' || $row['default']=='y')
+			{
+				$ratio *= floatval($row['ratio']);
+				$options[$row['ido']]= $row;
+			}
+		}
+	}
+	if(is_array($setoptions) && count($setoptions))
+	{
+		foreach($setoptions AS $ido=>$optid)
+		{
+			if( ! $defoptions[$ido][0]) return false;
+			$defoptions[$ido][0]= $optid;
+			$defoptions[$ido][1]= true;
+			$defoptions[$ido][2]= true;
+		}
+	}elseif(is_array($basketoptions) && count($basketoptions)){
+		foreach($basketoptions AS $ido=>$opt)
+		{
+			if( ! $defoptions[$ido][0]) return false;
+			$defoptions[$ido][0]= $opt['id'];
+			$defoptions[$ido][1]= true;
+			$defoptions[$ido][2]= true;
+		}
+	}else return array($ratio, $options);
+	
+	$options= array();
+	$ratio= 1.0;
+	if(is_array($defoptions) && count($defoptions))
+	{
+		foreach($defoptions AS $ido=>$opt)
+		{
+			if( ! $opt[2] && $opt[3]!='checkbox') return false;
+			$ido= intval($ido);
+			$opt[0]= intval($opt[0]);
+			$row= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$catid} AND ido={$ido} AND id={$opt[0]} AND enabled='y' LIMIT 1", ARRAY_A);
+			if( ! $row) return false;
+			if($opt[2]) $ratio *= floatval($row[0]['ratio']);
+			if($opt[3]!='checkbox' || $opt[2]) $options[$ido]= $row[0];
+		}
+	}
+	return array($ratio, $options);
+}
 
+
+//--------------------------- CATALOG ------------------------------------------
+
+
+
+
+
+//--------------------------- SHOP ---------------------------------------------
+
+function shopBasketCheck_Table()
+{
+	// Вызывать перед тем как изменять инфу по текущему заказу
+	global $nc_core;
+	$user= $nc_core->db->escape('s'.session_id());
+	$code= getShopOrderStatus_1();
+	if($code===false)
+	{
+		$code= 'w'.(date('Y')-2015).date('md');
+		$num= 0;
+		$row= $nc_core->db->get_results("SELECT COUNT(id) AS cc FROM BN_Shop_Order WHERE code LIKE '{$code}%'", ARRAY_A);
+		if(is_array($row) && count($row)) $num= $row[0]['cc'];
+		do{
+			$num++;
+			$row= $nc_core->db->get_results("SELECT id FROM BN_Shop_Order WHERE code='{$code}{$num}' LIMIT 1", ARRAY_A);
+		}while(is_array($row) && count($row));
+		$code .= $num;
+		$nc_core->db->query("INSERT INTO BN_Shop_Order SET status='1', code='{$code}', logs='".date('d.m.Y, H:i')." | Корзина создана', user='{$user}'");
+	}
+}
+
+function shopBasketCheck_Items()
+{
+	// Вызывать перед тем как выводить инфу по текущему заказу
+	global $nc_core;
+	$code= getShopOrderStatus_1();
+	$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Basket WHERE code='{$code}' AND enabled='y'", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		foreach($rr AS $row)
+		{
+			$flag= true;
+			$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog WHERE id={$row[itemid]} AND enabled='y' LIMIT 1", ARRAY_A);
+			if( ! $rr2) $flag= false;
+			if($flag)
+			{
+				$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog_Edition WHERE idi={$row[itemid]} AND edition='{$row[ed]}' AND enabled='y' LIMIT 1", ARRAY_A);
+				if( ! $rr2) $flag= false;
+			}
+			if($flag)
+			{
+				$params= unserialize($row['params']);
+				if(is_array($params['options']) && count($params['options']))
+				{
+					$options= getOptions($row['catid'],false,$params['options']);
+					if( ! $options) $flag= false;
+					else{
+						$price= getShopBasketItemPrice($row['catid'], $row['itemid'], $row['edid'], $options[0]);
+						if($row['params']!=$price)
+						{
+							$params['options']= $options[1];
+							$params= serialize($params);
+							$params= $nc_core->db->escape($params);
+							$nc_core->db->query("UPDATE BN_Shop_Basket SET price={$price}, params='{$params}' WHERE id={$row[id]} LIMIT 1");
+							$flag2= true;
+						}
+					}
+				}
+			}
+			if( ! $flag)
+			{
+				$nc_core->db->query("UPDATE BN_Shop_Basket SET enabled='n' WHERE id={$row[id]} LIMIT 1");
+				$flag2= true;
+			}
+		}
+		if($flag2) shopBasketCheck_Sum();
+	}
+}
+
+function shopBasketCheck_Sum()
+{
+	// Вызывать сразу после изменений по текущему заказу
+	global $nc_core;
+	$code= getShopOrderStatus_1();
+	$sum= 0;
+	$rr= $nc_core->db->get_results("SELECT `count`, price FROM BN_Shop_Basket WHERE code='{$code}' AND enabled='y'", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		foreach($rr AS $row)
+		{
+			$sum += $row['price'] * $row['count'];
+		}
+	}
+	$nc_core->db->query("UPDATE BN_Shop_Order SET `sum`='{$sum}', itogo={$sum}+cost_delivery WHERE code='{$code}' LIMIT 1");
+}
+
+function getShopOrderStatus_1($fields="code")
+{
+	global $nc_core;
+	$user= $nc_core->db->escape('s'.session_id());
+	$fieldsqq= $nc_core->db->escape($fields);
+	$result= false;
+	$row= $nc_core->db->get_results("SELECT {$fieldsqq} FROM BN_Shop_Order WHERE user='{$user}' AND status='1' ORDER BY id LIMIT 1", ARRAY_A);
+	if(is_array($row) && count($row))
+	{
+		if(strpos($fields,',')===false && strpos($fields,'*')===false) $result= $row[0][trim($fields,"`")];
+			else $result= $row[0];
+	}
+	return $result;
+}
+
+function shopHeaderBasket()
+{
+	global $nc_core;
+	$sum= getShopOrderStatus_1("`sum`");
+	$sum= intval($sum);
+	return ($sum ? '<span '.$sum.'>'.Price($sum).'</span> <span class="ruble">руб</span>' : '<span>Корзина</span>');
+}
+
+function shopBasketPage_Items()
+{
+	global $nc_core;
+
+	shopBasketCheck_Items();
+	$order= getShopOrderStatus_1("*");
+
+	$sum= intval($order['sum']);
+
+	$rr= $nc_core->db->get_results("SELECT bb.* FROM BN_Shop_Basket AS bb
+		INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
+		WHERE bb.code='{$order[code]}' ORDER BY bb.enabled DESC, bb.itemid, bb.price", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp .= '<div class="sbpi_titrow">
+			<div class="sbpi_nm sbpi_tit">Наименование</div>
+			<div class="sbpi_del sbpi_tit">Удалить</div>
+			<div class="sbpi_sum sbpi_tit">Сумма, руб.</div>
+			<div class="sbpi_cc sbpi_tit">Кол-во комплектов</div>
+			<div class="sbpi_pr sbpi_tit">Цена комплекта</div>
+			<div class="sbpi_ed sbpi_tit">В комплекте</div>
+		<br /></div>';
+		foreach($rr AS $row)
+		{
+			$category= str_replace("\n", " / ", $row['category']);
+			$params= unserialize($row['params']);
+			$options= '';
+			if(is_array($params['options']) && count($params['options']))
+			{
+				foreach($params['options'] AS $opt)
+				{
+					$options .= '<div class="sbpinm_mini">&mdash; ';
+					if($opt['subname']) $options .= $opt['subname'].' ';
+					$options .= $opt['name'].' ';
+					$options .= '</div>';
+				}
+			}
+
+			$pp .= '<div class="sbpi_itm '.($row['enabled']!='y'?'sbpi_itm_disabled':'').'" data-id="'.$row['id'].'">
+				<div class="sbpi_nm sbpi_row tiptop" title="'.$params['description'].'"><div>'.$category.'</div><div>'.$row['title'].'</div>'.$options.'</div>';
+
+			if($row['enabled']!='y') $pp .= '<div class="sbpi_disabled sbpi_row">--------</div>';
+
+			$pp .= '<div class="sbpi_del sbpi_row">'.icon('cross').'</div>
+
+				<div class="sbpi_sum sbpi_row">'.Price($row['price']*$row['count']).' <span class="ruble">руб</span><div class="svgloading"></div></div>
+
+				<div class="sbpi_cc sbpi_row"><div><span class="sbpi_cc_pm sbpi_cc_m" data-pm="m">'.icon('circle-minus').'</span> <input type="text" value="'.$row['count'].'" /> <span class="sbpi_cc_pm sbpi_cc_p" data-pm="p">'.icon('circle-plus').'</span></div></div>
+
+				<div class="sbpi_pr sbpi_row">'.Price($row['price']).' <span class="ruble">руб</span></div>
+
+				<div class="sbpi_ed sbpi_row">'.$row['ed'].'</div>
+			<br /></div>';
+		}
+
+		$pp .= '<div class="sbpi_sumsum">
+			<div class="sbpis_clear"><span class="as2">'.icon('cross').'Очистить корзину</span></div>
+			<div class="sbpis_sum"><span class="sum font2">'.Price($sum).'</span> <span class="ruble">руб</span><div class="svgloading"></div></div>
+			<div class="sbpis_sumtit">Сумма</div>
+			<br />
+			<div class="svgloading"></div>
+		</div>';
+	}else{
+		$pp .= 'Корзина пуста!';
+	}
+	return $pp;
+}
+
+function shopBasketPage_Checkout()
+{
+	global $nc_core;
+	
+	shopBasketCheck_Items();
+	$order= getShopOrderStatus_1("*");
+	
+	$pp .= '<div class="sbpc_sum">
+		<div class="sbpcs_right"><nobr><span class="sum font2">'.Price($order['itogo']).'</span> <span class="ruble">руб</span></nobr><div class="svgloading"></div></div>
+		<div class="sbpcs_left"><nobr>Сумма заказа</nobr></div>
+		<br />
+	</div>';
+	
+	$pp .= '<button class="shopbasketcheckout font2" type="button" data-itogo="'.$order['itogo'].'">Оформить заказ</button><br />';
+	
+	return $pp;
+}
+
+function shopBasketPage_Payment()
+{
+	global $nc_core;
+
+	$order= getShopOrderStatus_1("*");
+	
+	$pp .= '<div class="sbp_tit sbpdt_tit font2">Оплата</div>';
+
+	$pp .= '<div class="sbpp_paymentitm '.($order['payment']=='fizlico'?'sbpp_paymentitm_a':'').'" data-id="fizlico">
+	<div class="sbpp_label sbpp_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+	<div class="sbpp_value">Оплатить как физическое лицо
+		<div>
+			<span><img src="assets/images/payment/mir.svg" /></span>
+			<span><img src="assets/images/payment/visa.svg" /></span>
+			<span><img src="assets/images/payment/mastercard.svg" /></span>
+			<span><img src="assets/images/payment/maestro.svg" /></span>
+			<span><img src="assets/images/payment/yamoney.svg" /></span>
+			<span><img src="assets/images/payment/webmoney.svg" /></span>
+			<span><img src="assets/images/payment/qiwi.svg" /></span>
+			<span><img src="assets/images/payment/sber.svg" /></span>
+			<span><img src="assets/images/payment/alfa.svg" /></span>
+			<span><img src="assets/images/payment/beeline.svg" /></span>
+			<span><img src="assets/images/payment/megafon.svg" /></span>
+			<span><img src="assets/images/payment/mts.svg" /></span>
+			<span><img src="assets/images/payment/euroset.svg" /></span>
+			<span><img src="assets/images/payment/svyaznoy.svg" /></span>
+			<span>и другие</span>
+		</div>
+	</div><br /></div>';
+
+	$pp .= '<div class="sbpp_paymentitm '.($order['payment']=='urlico'?'sbpp_paymentitm_a':'').'" data-id="urlico">
+	<div class="sbpp_label sbpp_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+	<div class="sbpp_value">Заказать счет на юридическое лицо
+		<div>Загрузите реквизиты в поле справа &mdash; «Файлы»<img src="assets/images/krivayastrelka.svg" /></div>
+	</div><br /></div>';
+
+	$pp .= '<div class="sbpp_paymentitm '.($order['payment']=='nalik'?'sbpp_paymentitm_a':'').'" data-id="nalik">
+	<div class="sbpp_label sbpp_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+	<div class="sbpp_value">При получении</div><br /></div>';
+
+	$pp .= '<div class="sbpp_paymentitm '.($order['payment']=='later'?'sbpp_paymentitm_a':'').'" data-id="later">
+	<div class="sbpp_label sbpp_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+	<div class="sbpp_value">Определюсь позже</div><br /></div>';
+	
+	return $pp;
+}
+
+function shopBasketPage_Data($onlyfileslist=false)
+{
+	global $nc_core;
+
+	$order= getShopOrderStatus_1("*");
+	
+	$tmpfolder= '/assets/tmp/'.$order['code'].'/';
+	$diskpath= '/ORDERS/'.$order['code'].'/';
+	$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$order[code]}' AND enabled='y'",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp2 .= '<div class="sbpdt_files_list">';
+		foreach($rr AS $row)
+		{
+			$nm= substr($row['name'],strpos($row['name'],'_')+1);
+			$pp2 .= '<div class="sbpdtfl_itm" data-id="'.$row['id'].'">
+				<div class="sbpdtfli_nm">'.$nm.'</div>
+				<div class="sbpdtfli_del">'.icon('cross').'</div>
+			</div>';
+			
+			if($row['location']!='disk')
+			{
+				$diskresponse= disk('resources/?path='.urlencode($diskpath.$row['name']));
+				if($diskresponse[0]['http_code']==200)
+				{
+					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET location='disk' WHERE code='{$order[code]}' AND `name`='{$row[name]}' LIMIT 1");
+					unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$row['name']);
+				}
+			}else{
+				unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$row['name']);
+			}
+		}
+		$pp2 .= '</div>';
+	}
+	if($onlyfileslist) return $pp2;
+
+	$pp .= '<div class="sbp_tit sbpdt_tit font2">Контактные данные</div>';
+
+	$pp .= '<form>';
+
+	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Имя</div>
+	<div class="sbpdt_value"><input type="text" name="fio" data-nm="fio" value="'.htmlspecialchars($order['fio']).'" /></div><br /></div>';
+
+	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Телефон</div>
+	<div class="sbpdt_value"><input class="phonemask" type="text" name="phone" placeholder="+7 (___) ___-____" data-nm="phone" value="'.$order['phone'].'" /></div><br /></div>';
+
+	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">E-mail</div>
+	<div class="sbpdt_value"><input type="text" name="email" data-nm="email" value="'.htmlspecialchars($order['email']).'" /></div><br /></div>';
+
+	$pp .= '<div class="sbpdt_row sbpdt_delivery_address '.($order['delivery']=='address'?'sbpdt_delivery_address_a':'').'"><div class="sbpdt_label">Адрес доставки</div>
+	<div class="sbpdt_value"><textarea name="useraddress" data-nm="useraddress">'.($order['useraddress']).'</textarea></div><br /></div>';
+
+	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Сообщение</div>
+	<div class="sbpdt_value"><textarea name="message" data-nm="message">'.($order['message']).'</textarea></div><br /></div>';
+
+	$pp .= '</form>';
+
+	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Файлы</div>
+	<div class="sbpdt_value">
+		<div class="sbpdt_files"><span><span class="as1">Выберите файлы</span><br />или перетащите их сюда.<br /><span class="dop">Загрузка начнется сразу.</span></span><input type="file" multiple /></div>';
+		$pp .= '<div class="sbpdt_files_progress"></div>';
+		$pp .= '<div class="sbpdt_files_ajax">'.$pp2.'</div>';
+	$pp .= '</div><br /></div>';
+
+	return $pp;
+}
+
+function shopBasketPage_Delivery()
+{
+	global $nc_core;
+
+	$order= getShopOrderStatus_1("*");
+	$city= cityInfo();
+	$cityqq= $nc_core->db->escape($city);
+
+	if($city!=$order['city'])
+	{
+		$nc_core->db->query("UPDATE BN_Shop_Order SET city='{$cityqq}', address='', pvz='0' WHERE code='{$order[code]}' LIMIT 1");
+	}
+
+	$pp .= '<div class="sbp_tit font2">Доставка</div>';
+
+	$pp .= '<div class="sbpd_bigrow"><div class="sbpd_label">Город</div>
+	<div class="sbpd_value"><span class="city as1">г. '.$city.'</span></div><br /></div>';
+
+	$pp .= '<div class="sbpd_deliveryitm '.($order['delivery']=='address'?'sbpd_deliveryitm_a':'').'" data-id="address">
+	<div class="sbpd_label sbpd_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+	<div class="sbpd_value">Курьером по городу</div><br /></div>';
+
+	if($city=='Ростов-на-Дону')
+	{
+		$pp .= '<div class="sbpd_deliveryitm '.($order['delivery']=='pvz'?'sbpd_deliveryitm_a':'').'" data-id="rnd">
+		<div class="sbpd_label sbpd_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+		<div class="sbpd_value">Самовывоз
+			<div class="sbpd_v_a">ул. Социалистическая, 103 &mdash; угол Газетного</div>
+			<div class="sbpd_v_wt">пн-пт. 9:00 – 18:00</div>
+		</div><br /></div>';
+	}else{
+		$rr= $nc_core->db->get_results("SELECT * FROM BN_CDEK_City_Points WHERE City='{$cityqq}' AND enabled='y' ORDER BY CoordY", ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			$several= (count($rr)>1?true:false);
+			if($several)
+			{
+				$pp .= '<div class="sbpd_label">Самовывоз</div>
+				<div class="sbpd_value">&mdash; выберите пункт выдачи заказов<br /><span class="deliverymap as1">на карте</span></div><br />';
+			}
+
+			foreach($rr AS $key=>$row)
+			{
+				$pp .= '<div class="sbpd_deliveryitm '.($order['delivery']=='pvz' && $order['pvz']==$row['id']?'sbpd_deliveryitm_a sbpd_deliveryitm_show':'').' sbpd_deliveryitm_'.$row['id'].' '.(count($rr)>5?'sbpd_deliveryitm_hide':'').'" data-id="'.$row['id'].'">
+				<div class="sbpd_label sbpd_label_radio">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').'</div>
+				<div class="sbpd_value">'.(count($rr)==1?'Самовывоз':'').'
+					<div class="sbpd_v_a">'.$row['Address'].'</div>';
+				if($row['WorkTime']) $pp .= '<div class="sbpd_v_wt">'.$row['WorkTime'].'</div>';
+				$pp .= '</div><br /></div>';
+
+				if($several)
+				{
+					$map .= '.add(
+						new ymaps.Placemark(['.$row['CoordY'].','.$row['CoordX'].'], {
+							address: "'.addslashes($row['Address']).'",
+							worktime: "'.addslashes($row['WorkTime']).'",
+							pvzchooseid: '.$row['id'].'
+						},{
+							balloonContentLayout: BalloonContentLayout,
+							iconLayout: "default#image", iconImageHref: "assets/images/mappoint.png",
+							iconImageSize: [56, 53], iconImageOffset: [-17, -52],
+							balloonPanelMaxMapArea: 0
+						})
+					)';
+				}
+			}
+
+			if($several)
+			{
+				$pp .= '<script src="//api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>';
+				$pp .= '<script type="text/javascript">
+	                var myMap, myMapFlag;
+					function initYaMap()
+					{
+						if(myMapFlag) return;
+						myMapFlag= true;
+						myMap= new ymaps.Map("YaMap", {
+							center: ['.$row['CoordY'].','.$row['CoordX'].'],
+							zoom: 16,
+							controls: ["zoomControl","searchControl","geolocationControl"]
+						},{});
+
+						var closemap= new ymaps.control.Button({
+							data: {
+								content: "Закрыть карту"
+							},
+							options: {
+								selectOnClick: false,
+								maxWidth: [50, 150, 200],
+								size: "medium"
+							}
+						});
+						closemap.events.add("click",function(){
+				            $(".shopbasket_deliverymap").removeClass("open");
+				            $(".shopbasket_deliverymap").hide();
+						});
+						myMap.controls.add(closemap, {float:"right"});
+
+						var BalloonContentLayout= ymaps.templateLayoutFactory.createClass(
+							"<div style=\"padding:5px 15px;\"><div style=\"font-weight:bold;padding-bottom:5px;font-size:120%;\">{{properties.address}}</div><div style=\"color:#777;padding-bottom:8px;\">{{properties.worktime}}</div><div><button style=\"padding:1px 7px;\" class=\"shopBasketPVZChoose\" data-id=\"{{properties.pvzchooseid}}\">Выбрать</button></div></div>",
+							{
+								build: function(){
+									BalloonContentLayout.superclass.build.call(this);
+									$(".shopBasketPVZChoose").bind("click", this.onButtonChooseClick);
+								},
+								clear: function(){
+									$(".shopBasketPVZChoose").unbind("click", this.onButtonChooseClick);
+									BalloonContentLayout.superclass.clear.call(this);
+								},
+								onButtonChooseClick: function(){
+									var id= $(this).data("id");
+									$(".sbp_delivery .sbpd_deliveryitm_"+id).trigger("click");
+								}
+							});
+						myMap.geoObjects'.$map.';';
+				if(count($rr)>=2) $pp .= 'myMap.setBounds(myMap.geoObjects.getBounds(),{ zoomMargin: 50 });';
+				$pp .= '}
+					</script>';
+
+				$pp .= '<div class="shopbasket_deliverymap"><div class="shbd_black"><div class="shbd_white">
+					<div id="YaMap" style="width:100%;height:100%;">&nbsp;</div>
+				</div></div></div>';
+			}
+		}
+	}
+
+	return $pp;
+}
+
+function getShopBasketItemPrice($catid, $itemid, $editionid, $ratio)
+{
+	global $nc_core;
+	$catid= intval($catid);
+	$itemid= intval($itemid);
+	$editionid= intval($editionid);
+	$price= false;
+	$row= $nc_core->db->get_results("SELECT ee.price FROM BN_PG_Catalog AS cc
+		INNER JOIN BN_PG_Catalog_Edition AS ee ON ee.idi=cc.id
+			WHERE cc.parent={$catid} AND cc.id={$itemid} AND ee.id={$editionid} AND ee.enabled='y' AND cc.enabled='y' LIMIT 1", ARRAY_A);
+	if(is_array($row) && count($row))
+	{
+		$price= $row[0]['price'] * $ratio;
+		$price= round($price);
+	}
+	return $price;
+}
+
+// ЯНДЕКС.ДИСК
+function disk($url,$request='GET',$uniqurl=false,$file=false)
+{
+	$curl= curl_init();
+	$curl_httpheader= array(
+		'Accept: application/json',
+		'Content-Type: application/json',
+		'Authorization: OAuth AQAAAAAZ8yArAADLW-bIisEEYks3vjbOIDyMih0',
+	);
+	$curl_setopt_array= array(
+		CURLOPT_CUSTOMREQUEST                => $request,
+		CURLOPT_URL                          => ($uniqurl?$url:'https://cloud-api.yandex.net/v1/disk/'.$url),
+		CURLOPT_HTTPHEADER                   => $curl_httpheader,
+		CURLOPT_FRESH_CONNECT                => true,
+		CURLOPT_RETURNTRANSFER               => true,
+		CURLOPT_FOLLOWLOCATION               => true,
+	);
+	if($request=='PUT' && $file)
+	{
+		$fo= fopen($file, 'r');
+		$curl_setopt_array[CURLOPT_PUT]= true;
+		$curl_setopt_array[CURLOPT_INFILE]= $fo;
+		$curl_setopt_array[CURLOPT_INFILESIZE]= filesize($file);
+	}
+	curl_setopt_array($curl,$curl_setopt_array);
+	$response= curl_exec($curl);
+	$response_header= curl_getinfo($curl);
+	curl_close($curl);
+	return array($response_header,$response);
+}
+// ЯНДЕКС.ДИСК
+//--------------------------- SHOP ---------------------------------------------
 
 
 
@@ -653,7 +1346,6 @@ function cityPVZ($city)
 		$pp .= '<script src="//api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>';
 		$pp .= '<script type="text/javascript">
 			var myMap;
-			var myMap2;
 			ymaps.ready(initYaMap);
 			function initYaMap()
 			{
@@ -843,10 +1535,10 @@ function generAlias($alias)
         "Д"=>"d", "Е"=>"e", "Ё"=>"jo", "Ж"=>"zh", "З"=>"z", "И"=>"i", "Й"=>"jj",
         "К"=>"k", "Л"=>"l", "М"=>"m", "Н"=>"n", "О"=>"o", "П"=>"p", "Р"=>"r", "С"=>"s",
         "Т"=>"t", "У"=>"u", "Ф"=>"f", "Х"=>"kh", "Ц"=>"c", "Ч"=>"ch", "Ш"=>"sh",
-        "Щ"=>"shh", "Ы"=>"y", "Э"=>"eh", "Ю"=>"yu", "Я"=>"ya", " "=>"-", "."=>"-",
-        ","=>"-", "_"=>"-", "+"=>"-", ":"=>"-", ";"=>"-", "!"=>"-", "?"=>"-");
+        "Щ"=>"shh", "Ы"=>"y", "Э"=>"eh", "Ю"=>"yu", "Я"=>"ya");
 	$alias= strip_tags(strtr($alias, $trans));
-	$alias= preg_replace("/[^a-z0-9-]/", "", $alias);
+	$alias= strtolower($alias);
+	$alias= preg_replace("/[^a-z0-9-\.]/", "-", $alias);
 	$alias= preg_replace('/([-]){2,}/', '\1', $alias);
 	$alias= trim($alias, '-');
 	return $alias;
