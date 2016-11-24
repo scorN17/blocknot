@@ -8,13 +8,17 @@ D_nfX29970S0
 
 
 
+
+
 /*
-Удалять временные файлы заказа при оформлении заказа
-Изменять в таблице Basket - params_options_ratio
-Выключать товар в корзине если в категории изменился состав опций
-функция получения опций для категории - GROUP BY ido ORDER BY IF(default='y',0,1), ratio
-Доработать RATIO
-getOptions() - не считает ratio
+- НЕ ЗАБЫТЬ вести историю заказа
+
+- Удалять временные файлы заказа при оформлении заказа
+- При расчете веса заказа не учитываются коэффициенты опций
+- Ошибка: в корзине слетает город
+- вывод ошибок в корзине
+- принуждать удалять из корзины недействительные позиции
+- на нажатии на оформление - отправлять форму с данными покупателя
 */
 
 
@@ -282,7 +286,7 @@ function _AJAX()
 			if($pvz!==false)
 			{
 				$address= $nc_core->db->escape($address);
-				$nc_core->db->query("UPDATE BN_Shop_Order SET delivery='{$delivery}', address='{$address}', pvz='{$pvz}' WHERE code='{$code}' LIMIT 1");
+				$nc_core->db->query("UPDATE BN_Shop_Order SET ability_deliver='{$abilityDeliver}', cost_delivery='{$deliveryCost}', delivery='{$delivery}', address='{$address}', pvz='{$pvz}', delivery_days='{$deliveryDays}' WHERE code='{$code}' LIMIT 1");
 			}
 			shopBasketCheck_Sum();
 		}
@@ -312,26 +316,17 @@ function _AJAX()
 
 				$options= getOptions($catid, $options);
 				if( ! $options) exit();
-				$ratio= $options[0];
-				$option= $options[1];
-				if(is_array($option) && count($option))
+				$markup= $options[0];
+				$params['options']= $options[1];
+				if(is_array($params['options']) && count($params['options']))
 				{
-					foreach($option AS $row2)
+					foreach($params['options'] AS $row2)
 					{
-						$options_info[$row2['ido']]= array(
-							'id'          => $row2['id'],
-							'ido'         => $row2['ido'],
-							'type'        => $row2['type'],
-							'name'        => $row2['name'],
-							'subname'     => $row2['subname'],
-							'ratio'       => $row2['ratio']
-						);
 						$uniq .= $row2['type'] . $row2['name'] . $row2['subname'];
 					}
-					$params['options']= $options_info;
 				}
 
-				$price= getShopBasketItemPrice($catid, $row['ccid'], $edition, $ratio);
+				$price= getShopBasketItemPrice($catid, $row['ccid'], $edition, $markup);
 
 				$category= getIdLvl(183, $catid, false, 'Subdivision_Name');
 				if(is_array($category) && count($category))
@@ -416,7 +411,7 @@ function paymentForm()
 
 //--------------------------- CATALOG ------------------------------------------
 
-function _CATALOG($id, $onlytable=false, $ratio=false, $editions_large=false)
+function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 {
 	global $nc_core;
 
@@ -477,7 +472,11 @@ function _CATALOG($id, $onlytable=false, $ratio=false, $editions_large=false)
 	{
 		foreach($subCategories AS $key=>$row)
 		{
-			if( ! $ratio){ $ratio= getOptions($row['id']); $ratio= $ratio[0]; }
+			if(!$onlytable)
+			{
+				$markup= getOptions($row['id']);
+				$markup= $markup[0];
+			}
 
 			$subinfo= $nc_core->subdivision->get_by_id($row['id']);
 
@@ -504,8 +503,12 @@ function _CATALOG($id, $onlytable=false, $ratio=false, $editions_large=false)
 							if( ! $editions_large && $keyedition>=7) break;
 							elseif($editions_large && $keyedition<7) continue;
 						}
-						if($ratio<1 || $ratio>1) $edition['price'] *= $ratio;
-						$tablepp .= '<td class="ctt_itm" data-edition="'.$edition['id'].'"><span class="price">'.Price($edition['price']).'</span> <span class="ruble">руб</span><span class="check">'.icon('check').'</span></td>';
+						$edition_markup= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
+						$edition_markup *= $markup;
+						$price= $edition['price'];
+						if($edition_markup) $price += $edition_markup;
+						$price= round($price);
+						$tablepp .= '<td class="ctt_itm" data-edition="'.$edition['id'].'"><span class="price">'.Price($price).'</span> <span class="ruble">руб</span><span class="check">'.icon('check').'</span></td>';
 					}
 					$tablepp .= '</tr>';
 				}
@@ -688,17 +691,17 @@ function getOptions($catid, $setoptions=false, $basketoptions=false)
 	$catid= intval($catid);
 	$defoptions= array();
 	$options= array();
-	$ratio= 1.0;
+	$markup= 0;
 	
 	$rr= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$catid} AND enabled='y' GROUP BY ido ORDER BY IF(`default`='y',0,1), ii", ARRAY_A);
 	if(is_array($rr) && count($rr))
 	{
 		foreach($rr AS $row)
 		{
-			$defoptions[$row['ido']]= array($row['id'], ($row['type']!='checkbox' || $row['default']=='y'?true:false), false, $row['type']); // array(option_id, учитывать ratio, определено, option_type);
+			$defoptions[$row['ido']]= array($row['id'], ($row['type']!='checkbox' || $row['default']=='y'?true:false), false, $row['type']); // array(option_id, учитывать markup, определено, option_type);
 			if($row['type']!='checkbox' || $row['default']=='y')
 			{
-				$ratio *= floatval($row['ratio']);
+				$markup += floatval($row['markup']);
 				$options[$row['ido']]= $row;
 			}
 		}
@@ -720,10 +723,10 @@ function getOptions($catid, $setoptions=false, $basketoptions=false)
 			$defoptions[$ido][1]= true;
 			$defoptions[$ido][2]= true;
 		}
-	}else return array($ratio, $options);
+	}else return array(floatval($markup), $options);
 	
 	$options= array();
-	$ratio= 1.0;
+	$markup= 0;
 	if(is_array($defoptions) && count($defoptions))
 	{
 		foreach($defoptions AS $ido=>$opt)
@@ -733,11 +736,11 @@ function getOptions($catid, $setoptions=false, $basketoptions=false)
 			$opt[0]= intval($opt[0]);
 			$row= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$catid} AND ido={$ido} AND id={$opt[0]} AND enabled='y' LIMIT 1", ARRAY_A);
 			if( ! $row) return false;
-			if($opt[2]) $ratio *= floatval($row[0]['ratio']);
+			if($opt[2]) $markup += floatval($row[0]['markup']);
 			if($opt[3]!='checkbox' || $opt[2]) $options[$ido]= $row[0];
 		}
 	}
-	return array($ratio, $options);
+	return array(floatval($markup), $options);
 }
 
 
@@ -823,6 +826,21 @@ function shopBasketCheck_Sum()
 	// Вызывать сразу после изменений по текущему заказу
 	global $nc_core;
 	$code= getShopOrderStatus_1();
+
+	$deliveryCost= 0;
+	$abilityDeliver= 'n';
+	$deliveryDays= '0';
+	$tariffid= 0;
+	$deliveryCalculator= shopDeliveryCalculator();
+	if($deliveryCalculator[0]===true)
+	{
+		$deliveryCost= intval($deliveryCalculator[1]);
+		$abilityDeliver= 'y';
+		$tariffid= $deliveryCalculator[3];
+		$deliveryDays= $deliveryCalculator[2][0].($deliveryCalculator[2][1]!=$deliveryCalculator[2][0]?'-'.$deliveryCalculator[2][1]:'');
+	}
+	$delivery_qq= "ability_deliver='{$abilityDeliver}', cost_delivery='{$deliveryCost}', delivery_days='{$deliveryDays}', delivery_tariff='{$tariffid}'";
+
 	$sum= 0;
 	$rr= $nc_core->db->get_results("SELECT `count`, price FROM BN_Shop_Basket WHERE code='{$code}' AND enabled='y'", ARRAY_A);
 	if(is_array($rr) && count($rr))
@@ -832,7 +850,7 @@ function shopBasketCheck_Sum()
 			$sum += $row['price'] * $row['count'];
 		}
 	}
-	$nc_core->db->query("UPDATE BN_Shop_Order SET `sum`='{$sum}', itogo={$sum}+cost_delivery WHERE code='{$code}' LIMIT 1");
+	$nc_core->db->query("UPDATE BN_Shop_Order SET `sum`='{$sum}', itogo='".($sum+$deliveryCost)."' ,{$delivery_qq} WHERE code='{$code}' LIMIT 1");
 }
 
 function getShopOrderStatus_1($fields="code")
@@ -932,7 +950,35 @@ function shopBasketPage_Checkout()
 	
 	shopBasketCheck_Items();
 	$order= getShopOrderStatus_1("*");
-	
+
+	$deliveryCost= true;
+
+	if($order['city']!='Ростов-на-Дону' && $order['delivery']=='pvz' && $order['pvz']=='0')
+	{
+		$deliveryCost= false;
+		$pp .= '<div class="sbpc_error">
+			<div class="sbpcs_e_itm">Выберите способ доставки</div>
+			<br />
+		</div>';
+	}
+
+	if($deliveryCost)
+	{
+		if($order['ability_deliver']=='y' && $order['cost_delivery']>0)
+		{
+			$pp .= '<div class="sbpc_sum sbpc_sum2">
+				<div class="sbpcs_right"><nobr><span class="sum font2">'.Price($order['cost_delivery']).'</span> <span class="ruble">руб</span></nobr><div class="svgloading"></div></div>
+				<div class="sbpcs_left"><nobr>Стоимость доставки</nobr></div>
+				<br />
+			</div>';
+		}elseif($order['ability_deliver']!='y'){
+			$pp .= '<div class="sbpc_info">
+				<div class="sbpcs_i_itm"><nobr>Наши менеджеры рассчитают стоимость доставки вручную!</nobr></div>
+				<br />
+			</div>';
+		}
+	}
+
 	$pp .= '<div class="sbpc_sum">
 		<div class="sbpcs_right"><nobr><span class="sum font2">'.Price($order['itogo']).'</span> <span class="ruble">руб</span></nobr><div class="svgloading"></div></div>
 		<div class="sbpcs_left"><nobr>Сумма заказа</nobr></div>
@@ -1068,7 +1114,8 @@ function shopBasketPage_Delivery()
 
 	if($city!=$order['city'])
 	{
-		$nc_core->db->query("UPDATE BN_Shop_Order SET city='{$cityqq}', address='', pvz='0' WHERE code='{$order[code]}' LIMIT 1");
+		$nc_core->db->query("UPDATE BN_Shop_Order SET ability_deliver='n', cost_delivery='0', city='{$cityqq}', delivery='pvz', address='', pvz='0' WHERE code='{$order[code]}' LIMIT 1");
+		$order= getShopOrderStatus_1("*");
 	}
 
 	$pp .= '<div class="sbp_tit font2">Доставка</div>';
@@ -1187,23 +1234,108 @@ function shopBasketPage_Delivery()
 	return $pp;
 }
 
-function getShopBasketItemPrice($catid, $itemid, $editionid, $ratio)
+function getShopBasketItemPrice($catid, $itemid, $editionid, $markup)
 {
 	global $nc_core;
 	$catid= intval($catid);
 	$itemid= intval($itemid);
 	$editionid= intval($editionid);
 	$price= false;
-	$row= $nc_core->db->get_results("SELECT ee.price FROM BN_PG_Catalog AS cc
+	$row= $nc_core->db->get_results("SELECT ee.edition, ee.price FROM BN_PG_Catalog AS cc
 		INNER JOIN BN_PG_Catalog_Edition AS ee ON ee.idi=cc.id
 			WHERE cc.parent={$catid} AND cc.id={$itemid} AND ee.id={$editionid} AND ee.enabled='y' AND cc.enabled='y' LIMIT 1", ARRAY_A);
 	if(is_array($row) && count($row))
 	{
-		$price= $row[0]['price'] * $ratio;
+		$edition= intval(preg_replace("/[^0-9]/", '', $row[0]['edition']));
+		$price= $row[0]['price'] + ($edition*$markup);
 		$price= round($price);
 	}
 	return $price;
 }
+
+// CDEK
+function shopDeliveryCalculator()
+{
+	global $nc_core;
+	include_once($nc_core->DOCUMENT_ROOT.'/netcat/modules/scorn_shop/CalculatePriceDeliveryCdek.php');
+	$order= getShopOrderStatus_1("*");
+
+	$ModeDeliveryId= ($order['delivery']=='address'?3:4); //С-Д //С-С
+	$ModeDeliveryId= ($order['delivery']=='address'?1:2); //Д-Д //Д-С
+
+	$senderCityId= 438;
+	$receiverCityId= $senderCityId;
+	$row= $nc_core->db->get_results("SELECT CityCode FROM BN_CDEK_City_Points WHERE City='".$nc_core->db->escape($order['city'])."' LIMIT 1",ARRAY_A);
+	if(is_array($row) && count($row)) $receiverCityId= $row[0]['CityCode'];
+
+	if(($ModeDeliveryId==2 || $ModeDeliveryId==4) && $receiverCityId==$senderCityId)
+	{
+		return array(true, 0, array(0,0), 0);
+	}
+
+	$calc= new CalculatePriceDeliveryCdek();
+    // $calc->setAuth('ИМ1227145', '6164321237');
+	$calc->setSenderCityId($senderCityId);
+	$calc->setReceiverCityId($receiverCityId);
+
+	// $calc->setTariffId(138);
+	$calc->setModeDeliveryId($ModeDeliveryId);
+    $calc->addTariffPriority(136);
+    $calc->addTariffPriority(137);
+    $calc->addTariffPriority(138);
+    $calc->addTariffPriority(139);
+    $calc->addTariffPriority(233);
+    $calc->addTariffPriority(234);
+    $calc->addTariffPriority(1);
+    $calc->addTariffPriority(5);
+    $calc->addTariffPriority(10);
+    $calc->addTariffPriority(11);
+    $calc->addTariffPriority(12);
+    $calc->addTariffPriority(62);
+    $calc->addTariffPriority(63);
+
+    $rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed FROM BN_Shop_Basket AS bb
+    	INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
+    	WHERE bb.code='{$order['code']}' AND bb.enabled='y'",ARRAY_A);
+    if(is_array($rr) && count($rr))
+    {
+    	foreach($rr AS $row)
+    	{
+    		$ed= intval(preg_replace("/[^0-9]/", '', $row['ed']));
+    		$dimensions= explode('x', $row['dimensions']);
+    		$dimensions0= ceil(intval($dimensions[0])/10);
+    		$dimensions1= ceil(intval($dimensions[1])/10);
+    		$dimensions2= intval($dimensions[2]) *($ed/100);
+    		$dimensions2= ceil($dimensions2/10);
+    		$volume= ($dimensions[0]/1000)*($dimensions[1]/1000);
+    		$weight= ceil($volume*intval($row['weight'])*$ed);
+    		$weight= floatval($weight/1000);
+
+   //  		print_r(array(
+   //  			'ed1'=>$ed,
+   //  			'ed2'=>$ed/100,
+   //  			'dimensions'=>$row['dimensions'],
+   //  			'dimensions2'=>$dimensions2,
+   //  			'volume'=>$volume,
+   //  			'weight1'=>intval($row['weight']),
+   //  			'weight2'=>$weight,
+   //  			'weight3'=>$weight3,
+			// ));
+
+			for($kk=1; $kk<=$row['count']; $kk++) $calc->addGoodsItemBySize($weight, $dimensions0,$dimensions1,$dimensions2);
+    	}
+    }
+
+	if($calc->calculate()===true)
+	{
+		$calcres= $calc->getResult();
+		return array(true, $calcres['result']['price'], array($calcres['result']['deliveryPeriodMin'],$calcres['result']['deliveryPeriodMax']), $calcres['result']['tariffId']);
+	}else{
+		$calcerr= $calc->getError();
+		return array(false, $calcres['error']['code']);
+	}
+}
+// CDEK
 
 // ЯНДЕКС.ДИСК
 function disk($url,$request='GET',$uniqurl=false,$file=false)
@@ -1512,6 +1644,10 @@ function myCity_Init()
 
 //---------------------------- CITY --------------------------------------------
 
+
+
+
+// FUNCTIONS -------------------------------------------------------------------
 
 function keyboardLayout($txt)
 {
