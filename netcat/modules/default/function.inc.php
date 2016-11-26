@@ -290,6 +290,11 @@ function _AJAX()
 			}
 			shopBasketCheck_Sum();
 		}
+
+		if($_GET['a2']=='shopbasketcheckout')
+		{
+			print $vl;
+		}
 	}
 
 	if($action=='shopAddToBasket')
@@ -917,18 +922,24 @@ function shopBasketPage_Items()
 			$pp .= '<div class="sbpi_itm '.($row['enabled']!='y'?'sbpi_itm_disabled':'').'" data-id="'.$row['id'].'">
 				<div class="sbpi_nm sbpi_row tiptop" title="'.$params['description'].'"><div>'.$category.'</div><div>'.$row['title'].'</div>'.$options.'</div>';
 
-			if($row['enabled']!='y') $pp .= '<div class="sbpi_disabled sbpi_row">--------</div>';
+			if($row['enabled']!='y') $pp .= '<div class="sbpi_disabled sbpi_row">Товар с данными параметрами больше <nobr>не существует!</nobr><br />Его нельзя заказать.</div>';
 
-			$pp .= '<div class="sbpi_del sbpi_row">'.icon('cross').'</div>
+			$pp .= '<div class="sbpi_del sbpi_row">'.icon('cross').'</div>';
 
-				<div class="sbpi_sum sbpi_row">'.Price($row['price']*$row['count']).' <span class="ruble">руб</span><div class="svgloading"></div></div>
+			if($row['enabled']!='y') $pp .= '<div class="sbpi_space sbpi_row">&nbsp;</div>';
 
-				<div class="sbpi_cc sbpi_row"><div><span class="sbpi_cc_pm sbpi_cc_m" data-pm="m">'.icon('circle-minus').'</span> <input type="text" value="'.$row['count'].'" /> <span class="sbpi_cc_pm sbpi_cc_p" data-pm="p">'.icon('circle-plus').'</span></div></div>
+			if($row['enabled']=='y')
+			{
+				$pp .= '<div class="sbpi_sum sbpi_row">'.Price($row['price']*$row['count']).' <span class="ruble">руб</span><div class="svgloading"></div></div>
 
-				<div class="sbpi_pr sbpi_row">'.Price($row['price']).' <span class="ruble">руб</span></div>
+					<div class="sbpi_cc sbpi_row"><div><span class="sbpi_cc_pm sbpi_cc_m" data-pm="m">'.icon('circle-minus').'</span> <input type="text" value="'.$row['count'].'" /> <span class="sbpi_cc_pm sbpi_cc_p" data-pm="p">'.icon('circle-plus').'</span></div></div>
 
-				<div class="sbpi_ed sbpi_row">'.$row['ed'].'</div>
-			<br /></div>';
+					<div class="sbpi_pr sbpi_row">'.Price($row['price']).' <span class="ruble">руб</span></div>';
+			}
+
+			$pp .= '<div class="sbpi_ed sbpi_row">'.$row['ed'].'</div>';
+
+			$pp .= '<br /></div>';
 		}
 
 		$pp .= '<div class="sbpi_sumsum">
@@ -1075,7 +1086,7 @@ function shopBasketPage_Data($onlyfileslist=false)
 
 	$pp .= '<div class="sbp_tit sbpdt_tit font2">Контактные данные</div>';
 
-	$pp .= '<form>';
+	$pp .= '<form class="shopBasketDataForm">';
 
 	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Имя</div>
 	<div class="sbpdt_value"><input type="text" name="fio" data-nm="fio" value="'.htmlspecialchars($order['fio']).'" /></div><br /></div>';
@@ -1274,7 +1285,7 @@ function shopDeliveryCalculator()
 	}
 
 	$calc= new CalculatePriceDeliveryCdek();
-    // $calc->setAuth('ИМ1227145', '6164321237');
+    $calc->setAuth('fb0fecb33d60d1ee825dedb4be66afd0', '25af75308af93f1b22046032c482c63b');
 	$calc->setSenderCityId($senderCityId);
 	$calc->setReceiverCityId($receiverCityId);
 
@@ -1294,13 +1305,41 @@ function shopDeliveryCalculator()
     $calc->addTariffPriority(62);
     $calc->addTariffPriority(63);
 
-    $rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed FROM BN_Shop_Basket AS bb
+    $rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed, bb.params FROM BN_Shop_Basket AS bb
     	INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
     	WHERE bb.code='{$order['code']}' AND bb.enabled='y'",ARRAY_A);
     if(is_array($rr) && count($rr))
     {
     	foreach($rr AS $row)
     	{
+    		if( ! $row['dimensions']) $row['dimensions']= '210x297x50';
+
+    		$weight= floatval($row['weight']);
+    		$weight_flag= ($weight?true:false);
+    		$options= unserialize($row['params']);
+    		$options= $options['options'];
+    		// print_r($options);
+    		if(is_array($options) && count($options))
+    		{
+    			foreach($options AS $opt)
+    			{
+    				if( ! $weight_flag && floatval($opt['weight']))
+    				{
+    					$weight= $opt['weight'];
+    					break;
+    				}
+    				if($weight_flag)
+    				{
+    					if(floatval($opt['weight'])) $weight *= floatval($opt['weight']);
+    				}
+    			}
+    		}
+    		if( ! floatval($weight)) $weight= 300;
+
+   //  		print_r(array(
+   //  			'weight2'=>$weight,
+			// ));
+
     		$ed= intval(preg_replace("/[^0-9]/", '', $row['ed']));
     		$dimensions= explode('x', $row['dimensions']);
     		$dimensions0= ceil(intval($dimensions[0])/10);
@@ -1308,7 +1347,7 @@ function shopDeliveryCalculator()
     		$dimensions2= intval($dimensions[2]) *($ed/100);
     		$dimensions2= ceil($dimensions2/10);
     		$volume= ($dimensions[0]/1000)*($dimensions[1]/1000);
-    		$weight= ceil($volume*intval($row['weight'])*$ed);
+    		$weight= ceil($volume*floatval($weight)*$ed);
     		$weight= floatval($weight/1000);
 
    //  		print_r(array(
@@ -1317,7 +1356,7 @@ function shopDeliveryCalculator()
    //  			'dimensions'=>$row['dimensions'],
    //  			'dimensions2'=>$dimensions2,
    //  			'volume'=>$volume,
-   //  			'weight1'=>intval($row['weight']),
+   //  			'weight1'=>floatval($weight),
    //  			'weight2'=>$weight,
    //  			'weight3'=>$weight3,
 			// ));
@@ -1514,7 +1553,6 @@ function cityInfo($info='name', $alias=false)
 		if(is_array($row) && count($row)) $cityInfo= $row[0];
 	}
 	if( ! $cityInfo) $cityInfo= $_SESSION['mycity'];
-
 	if(isset($cityInfo[$info])) return $cityInfo[$info];
 
 	if($info=='pointaddress')
@@ -1536,6 +1574,7 @@ function setCity($city, $redirect=false, $confirmed=false)
 		if(is_array($row) && count($row))
 		{
 			$row= $row[0];
+			logs(session_id());
 			$_SESSION['mycity']['city']= $row['City'];
 			$_SESSION['mycity']['city_code']= $row['CityCode'];
 			$_SESSION['mycity']['city_alias']= $row['CityAlias'];
@@ -2135,7 +2174,7 @@ function Compress($file=false, $files=false, $tofile=false, $compress=true, $pri
 			$filetype= substr( $file, strrpos( $file, '.' ) );
 			$file_to= substr( $file, 0, strrpos( $file, '.' ) ) .'.compress'. $filetype;
 			$filesarray[]= $file;
-			if( ! file_exists( $root . $file_to ) || filemtime( $root . $file ) > filemtime( $root . $file_to ) ) $refresh= true;
+			if( ! file_exists( $root . $file_to ) || filectime( $root . $file ) > filectime( $root . $file_to ) ) $refresh= true;
 		}else{
 			$filetype= substr( $files, strrpos( $files, '.' ) );
 			$file_to= ( $tofile ? $tofile : 'all.compress'.$filetype );
@@ -2147,14 +2186,14 @@ function Compress($file=false, $files=false, $tofile=false, $compress=true, $pri
 				{
 					$filepath= trim( $row1 );
 					$filesarray[]= $filepath;
-					if( ! file_exists( $root . $file_to ) || filemtime( $root . $filepath ) > filemtime( $root . $file_to ) ) $refresh= true;
+					if( ! file_exists( $root . $file_to ) || filectime( $root . $filepath ) > filectime( $root . $file_to ) ) $refresh= true;
 				}else{
 					$tmp3= explode( ',', $tmp2[ 1 ] );
 					foreach( $tmp3 AS $row3 )
 					{
 						$filepath= $tmp2[ 0 ] . trim( $row3 );
 						$filesarray[]= $tmp2[ 0 ] . trim( $row3 );
-						if( ! file_exists( $root . $file_to ) || filemtime( $root . $filepath ) > filemtime( $root . $file_to ) ) $refresh= true;
+						if( ! file_exists( $root . $file_to ) || filectime( $root . $filepath ) > filectime( $root . $file_to ) ) $refresh= true;
 					}
 				}
 			}
