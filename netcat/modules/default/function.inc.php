@@ -132,9 +132,17 @@ function _AJAX()
 				if($diskresponse[0]['http_code']!=200)
 				{
 					$diskresponse= disk('resources/?path='.urlencode($diskpath), 'PUT');
+					$diskresponse= disk('resources/publish/?path='.urlencode($diskpath), 'PUT');
+					$diskresponse= disk('resources/?path='.urlencode($diskpath));
+					if($diskresponse[0]['http_code']==200)
+					{
+						$diskresponse_arr= json_decode($diskresponse[1], true);
+						$public_url= $nc_core->db->escape($diskresponse_arr['public_url']);
+						$nc_core->db->query("UPDATE BN_Shop_Order SET files='{$public_url}' WHERE code='{$code}' LIMIT 1");
+					}
 				}
 				$diskresponse= disk('resources/?path='.urlencode($diskpath.$fn));
-				if($diskresponse[0]['http_code']!=200 || $diskresponse_arr['size']!=$fs)
+				if($diskresponse[0]['http_code']!=200)
 				{
 					$diskresponse= disk('resources/upload/?overwrite=true&path='.urlencode($diskpath.$fn));
 					$diskresponse_arr= json_decode($diskresponse[1], true);
@@ -293,7 +301,138 @@ function _AJAX()
 
 		if($_GET['a2']=='shopbasketcheckout')
 		{
-			print $vl;
+			shopBasketCheck_Table();
+			shopBasketCheck_Items();
+			shopBasketCheck_Sum();
+
+			$code= getShopOrderStatus_1();
+
+			$fio= $nc_core->db->escape(trim(urldecode($_POST['fio'])));
+			$email= $nc_core->db->escape(strtolower(trim(urldecode($_POST['email']))));
+			$useraddress= $nc_core->db->escape(trim(urldecode($_POST['useraddress'])));
+			$message= $nc_core->db->escape(trim(urldecode($_POST['message'])));
+			$phone= $_POST['phone'];
+			$phone= '+'.preg_replace("/[^0-9]/",'',$phone);
+
+			$nc_core->db->query("UPDATE BN_Shop_Order SET fio='{$fio}', email='{$email}', phone='{$phone}', useraddress='{$useraddress}', message='{$message}' WHERE code='{$code}' LIMIT 1");
+
+			$order= getShopOrderStatus_1('*');
+
+			$itogo= trim(urldecode($_GET['itogo']));
+			if(floatval($itogo) != floatval($order['itogo'])) $errors .= '<div>'.icon('warning').'&nbsp; Изменилась сумма заказа! Проверьте данные</div>';
+
+			if( ! preg_match("/^\+7[0-9]{10}$/", $order['phone'])) $errors .= '<div>'.icon('warning').'&nbsp; Введите корректный номер телефона</div>';
+
+			if( ! preg_match("/^[a-z0-9-_\.]{1,}@[a-z0-9-\.]{1,}\.[a-z]{2,10}$/", $order['email'])) $errors .= '<div>'.icon('warning').'&nbsp; Введите корректный E-mail</div>';
+
+			if($order['delivery']=='address' && ! $order['useraddress']) $errors .= '<div>'.icon('warning').'&nbsp; Введите адрес доставки</div>';
+
+			if($order['payment']=='n') $errors .= '<div>'.icon('warning').'&nbsp; Выберите способ оплаты</div>';
+
+			if( ! $order['city']) $errors .= '<div>'.icon('warning').'&nbsp; Выберите город доставки</div>';
+
+			if($order['delivery']=='pvz' && $order['city']!='Ростов-на-Дону' && ! $order['pvz']) $errors .= '<div>'.icon('warning').'&nbsp; Выберите способ доставки</div>';
+
+			if($order['city']!='Ростов-на-Дону')
+			{
+				$cityqq= $nc_core->db->escape($order['city']);
+				if($order['delivery']=='pvz') $qq= "AND id={$order['pvz']}";
+				$row= $nc_core->db->get_results("SELECT * FROM BN_CDEK_City_Points WHERE City='{$cityqq}' {$qq} AND enabled='y' LIMIT 1",ARRAY_A);
+				if( ! $row) $errors .= '<div>'.icon('warning').'&nbsp; Выберите пункт выдачи заказа</div>';
+			}
+
+			$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Basket WHERE code='{$code}'",ARRAY_A);
+			if(is_array($rr) && count($rr))
+			{
+				foreach($rr AS $row)
+				{
+					if($row['enabled']!='y')
+					{
+						$errors .= '<div>'.icon('warning').'&nbsp; Уберите из корзины недействительный товар</div>';
+						break;
+					}
+				}
+			}else $errors .= '<div>'.icon('warning').'&nbsp; Наполните корзину</div>';
+
+			if($errors) print $errors;
+			else{
+				// $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."' WHERE code='{$code}' AND status='1' LIMIT 1");
+				print 'go';
+
+				$message= str_replace("\n",'<br />',$order['message']);
+
+				$styles .= '<style>
+					.tbl1 {
+						border: none;
+					}
+						.tbl1 tr {
+						}
+							.tbl1 tr td {
+								vertical-align: top;
+								padding: 0;
+								padding-bottom: 5px;
+							}
+								.tbl1 tr td >div {
+									border-radius: 15px;
+									background: #ecf0f3;
+									padding: 7px 16px;
+								}
+									.tbl1 tr td >div.white {
+										background: none;
+										padding-top: 0;
+									}
+								.tbl1 tr td:nth-child(1) {
+									text-align: right;
+									padding: 7px 20px 0 0;
+								}
+								.tbl1 tr td.bigbig2 {
+									padding-bottom: 10px;
+									padding-top: 7px;
+								}
+								.tbl1 tr td.bigbig {
+									font-size: 150%;
+									padding-left: 16px;
+									padding-right: 16px;
+								}
+				</style>';
+
+				$mail1 .= '<table class="tbl1">
+					<tr><td class="bigbig2">Код заказа</td><td class="bigbig">'.substr($code,1).'</td></tr>
+					<tr><td></td><td><div class="white">'.date('d.m.Y, H:i',$order['checkout']).'</div></td></tr>
+
+					<tr><td>Имя</td><td><div>'.$order['fio'].'</div></td></tr>
+
+					<tr><td>Телефон</td><td><div>+7 '.substr($order['phone'],2,3).' '.substr($order['phone'],5,3).'-'.substr($order['phone'],8,4).'</div></td></tr>
+
+					<tr><td>E-mail</td><td><div><a target="_blank" href="mailto:'.$order['email'].'">'.$order['email'].'</a></div></td></tr>';
+
+				if($order['delivery']=='address') $mail1 .= '<tr><td>Адрес доставки</td><td><div>'.$order['useraddress'].'</div></td></tr>';
+
+				$mail1 .= '<tr><td>Сообщение</td><td><div>'.$message.'</div></td></tr>';
+
+				$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$code}' ORDER BY enabled, location DESC",ARRAY_A);
+				if(is_array($rr) && count($rr))
+				{
+					foreach($rr AS $row)
+					{
+						$fn= explode('_',$row['name']);
+						if($row['enabled']=='y') $files_user .= '<div>&mdash; '.$fn[1].'</div>';
+						$files_admin .= '<div>'.($row['enabled']=='y'?'+':'-').' ';
+						if($row['location']=='disk' && $order['files']) $tmp= $order['files'];
+							else $tmp= 'http://'.$nc_core->url->get_parsed_url('host').'/assets/tmp/'.$code.'/'.$row['name'];
+						$files_admin .= '<a target="_blank" href="'.$tmp.'">'.$row['name'].'</a>';
+						$files_admin .= ($row['location']=='disk'?' на диске':' на сервере');
+						$files_admin .= ($row['enabled']!='y'?' &mdash; удален':'').'</div>';
+					}
+				}
+				$mail2 .= '<tr><td>Файлы</td><td><div>'.$files_user.'</div></td></tr>';
+				$mail3 .= '<tr><td>Файлы</td><td><div>'.$files_admin.'</div></td></tr>';
+
+				$mail4 .= '</table>';
+
+				print $styles;
+				print $mail1.$mail2.$mail3.$mail4.$mail5;
+			}
 		}
 	}
 
@@ -964,14 +1103,15 @@ function shopBasketPage_Checkout()
 
 	$deliveryCost= true;
 
+	$pp .= '<div class="sbpc_errors">';
+
 	if($order['city']!='Ростов-на-Дону' && $order['delivery']=='pvz' && $order['pvz']=='0')
 	{
 		$deliveryCost= false;
-		$pp .= '<div class="sbpc_error">
-			<div class="sbpcs_e_itm">Выберите способ доставки</div>
-			<br />
-		</div>';
+		$pp .= '<div>'.icon('warning').'&nbsp; Выберите способ доставки.</div>';
 	}
+
+	$pp .= '<br /></div>';
 
 	if($deliveryCost)
 	{
@@ -996,7 +1136,7 @@ function shopBasketPage_Checkout()
 		<br />
 	</div>';
 	
-	$pp .= '<button class="shopbasketcheckout font2" type="button" data-itogo="'.$order['itogo'].'">Оформить заказ</button><br />';
+	$pp .= '<button class="shopbasketcheckout font2" type="button" data-code="'.$order['code'].'" data-itogo="'.$order['itogo'].'">Оформить заказ<div class="svgloading"></div></button><br />';
 	
 	return $pp;
 }
@@ -1092,7 +1232,7 @@ function shopBasketPage_Data($onlyfileslist=false)
 	<div class="sbpdt_value"><input type="text" name="fio" data-nm="fio" value="'.htmlspecialchars($order['fio']).'" /></div><br /></div>';
 
 	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Телефон</div>
-	<div class="sbpdt_value"><input class="phonemask" type="text" name="phone" placeholder="+7 (___) ___-____" data-nm="phone" value="'.$order['phone'].'" /></div><br /></div>';
+	<div class="sbpdt_value"><input class="phonemask" type="text" name="phone" placeholder="+7 (___) ___-____" data-nm="phone" value="'.substr($order['phone'],2).'" /></div><br /></div>';
 
 	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">E-mail</div>
 	<div class="sbpdt_value"><input type="text" name="email" data-nm="email" value="'.htmlspecialchars($order['email']).'" /></div><br /></div>';
@@ -1271,8 +1411,8 @@ function shopDeliveryCalculator()
 	include_once($nc_core->DOCUMENT_ROOT.'/netcat/modules/scorn_shop/CalculatePriceDeliveryCdek.php');
 	$order= getShopOrderStatus_1("*");
 
+	// $ModeDeliveryId= ($order['delivery']=='address'?1:2); //Д-Д //Д-С
 	$ModeDeliveryId= ($order['delivery']=='address'?3:4); //С-Д //С-С
-	$ModeDeliveryId= ($order['delivery']=='address'?1:2); //Д-Д //Д-С
 
 	$senderCityId= 438;
 	$receiverCityId= $senderCityId;
