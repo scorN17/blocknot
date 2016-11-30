@@ -161,7 +161,7 @@ function _AJAX()
 		$postaction= $_POST['action'];
 
 		$md5= strtoupper($_POST['md5']);
-		$mymd5= strtoupper(md5("checkOrder;100.00;{$_POST[orderSumCurrencyPaycash]};{$_POST[orderSumBankPaycash]};".YaKa('shopid').";{$_POST[invoiceId]};{$_POST[customerNumber]};".YaKa('shoppassword')));
+		$mymd5= strtoupper(md5($postaction.";100.00;{$_POST[orderSumCurrencyPaycash]};{$_POST[orderSumBankPaycash]};".YaKa('shopid').";{$_POST[invoiceId]};{$_POST[customerNumber]};".YaKa('shoppassword')));
 
 		header('Content-Type: application/xml');
 		if($mymd5==$md5) $responsecode= '0'; else $responsecode= '1';
@@ -277,7 +277,7 @@ function _AJAX()
 			if($prm=='rnd')
 			{
 				$delivery= 'pvz';
-				$address= '';
+				$address= 'ул. Социалистическая, 103 — угол Газетного';
 				$pvz= '0';
 			}elseif($prm=='address'){
 				$delivery= 'address';
@@ -356,7 +356,12 @@ function _AJAX()
 
 			if($errors) print $errors;
 			else{
-				// $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."' WHERE code='{$code}' AND status='1' LIMIT 1");
+				srand(time());
+				$secret .= $code.(substr($code,1)/3.1415).time().$order['itogo'].$order['user'].$order['phone'].$order['email'].$order['pvz'].$order['useraddress'].rand(100,999);
+				$secret= md5($secret);
+
+				// $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."'
+				// 	WHERE code='{$code}' AND status='1', secret='{$secret}' LIMIT 1");
 				print 'go';
 
 				$message= str_replace("\n",'<br />',$order['message']);
@@ -364,6 +369,7 @@ function _AJAX()
 				$styles .= '<style>
 					.tbl1 {
 						border: none;
+						width: 70%;
 					}
 						.tbl1 tr {
 						}
@@ -374,14 +380,14 @@ function _AJAX()
 							}
 								.tbl1 tr td >div {
 									border-radius: 15px;
-									background: #ecf0f3;
+									background: #ecf1f5;
 									padding: 7px 16px;
 								}
 									.tbl1 tr td >div.white {
 										background: none;
 										padding-top: 0;
 									}
-								.tbl1 tr td:nth-child(1) {
+								.tbl1 tr td.lab {
 									text-align: right;
 									padding: 7px 20px 0 0;
 								}
@@ -394,21 +400,65 @@ function _AJAX()
 									padding-left: 16px;
 									padding-right: 16px;
 								}
+					.tbl2 {
+						border: none;
+						width: 100%;
+						margin-top: 20px;
+					}
+						.tbl2 tr {
+						}
+							.tbl2 tr td {
+								padding: 0 2px;
+							}
+								.tbl2 tr.tit td {
+								}
+									.tbl2 tr.tit td >div {
+										border-radius: 15px;
+										background: #ecf1f5;
+										padding: 7px 14px;
+										font-size: 90%;
+										color: #777;
+									}
+								.tbl2 tr.row td {
+									padding: 10px 26px;
+								border-bottom: 1px solid #ecf1f5;
+								}
+								.tbl2 tr.itog td {
+									text-align: right;
+									padding: 15px 24px 0;
+									font-size: 130%;
+								}
+
+							.tbl2 tr .npp {
+								text-align: center;
+							}
+							.tbl2 tr .name {
+							}
+							.tbl2 tr .sht {
+								text-align: center;
+							}
+							.tbl2 tr .price {
+								text-align: right;
+							}
+							.tbl2 tr .cc {
+								text-align: center;
+							}
+							.tbl2 tr .sum {
+								text-align: right;
+							}
 				</style>';
 
 				$mail1 .= '<table class="tbl1">
-					<tr><td class="bigbig2">Код заказа</td><td class="bigbig">'.substr($code,1).'</td></tr>
-					<tr><td></td><td><div class="white">'.date('d.m.Y, H:i',$order['checkout']).'</div></td></tr>
+					<tr><td class="lab bigbig2">Код заказа</td><td class="bigbig">'.substr($code,1).'</td></tr>
+					<tr><td class="lab"></td><td><div class="white">'.date('d.m.Y, H:i',$order['checkout']).'</div></td></tr>
 
-					<tr><td>Имя</td><td><div>'.$order['fio'].'</div></td></tr>
+					<tr><td class="lab">Имя</td><td><div>'.$order['fio'].'</div></td></tr>
 
-					<tr><td>Телефон</td><td><div>+7 '.substr($order['phone'],2,3).' '.substr($order['phone'],5,3).'-'.substr($order['phone'],8,4).'</div></td></tr>
+					<tr><td class="lab">Телефон</td><td><div>+7 '.substr($order['phone'],2,3).' '.substr($order['phone'],5,3).'-'.substr($order['phone'],8,4).'</div></td></tr>
 
-					<tr><td>E-mail</td><td><div><a target="_blank" href="mailto:'.$order['email'].'">'.$order['email'].'</a></div></td></tr>';
+					<tr><td class="lab">E-mail</td><td><div><a target="_blank" href="mailto:'.$order['email'].'">'.$order['email'].'</a></div></td></tr>';
 
-				if($order['delivery']=='address') $mail1 .= '<tr><td>Адрес доставки</td><td><div>'.$order['useraddress'].'</div></td></tr>';
-
-				$mail1 .= '<tr><td>Сообщение</td><td><div>'.$message.'</div></td></tr>';
+				if($message) $mail1 .= '<tr><td class="lab">Сообщение</td><td><div>'.$message.'</div></td></tr>';
 
 				$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$code}' ORDER BY enabled, location DESC",ARRAY_A);
 				if(is_array($rr) && count($rr))
@@ -425,13 +475,90 @@ function _AJAX()
 						$files_admin .= ($row['enabled']!='y'?' &mdash; удален':'').'</div>';
 					}
 				}
-				$mail2 .= '<tr><td>Файлы</td><td><div>'.$files_user.'</div></td></tr>';
-				$mail3 .= '<tr><td>Файлы</td><td><div>'.$files_admin.'</div></td></tr>';
+				if($files_user) $mail2 .= '<tr><td class="lab">Файлы</td><td><div>'.$files_user.'</div></td></tr>';
+				if($files_admin) $mail3 .= '<tr><td class="lab">Файлы</td><td><div>'.$files_admin.'</div></td></tr>';
+
+				$mail4 .= '<tr><td class="lab">Город</td><td><div>'.$order['city'].'</div></td></tr>';
+				$mail4 .= '<tr><td class="lab">Доставка</td><td><div>'.($order['delivery']=='address'?'курьером по адресу':'самовывоз из пункта выдачи заказов').'</div></td></tr>';
+				if($order['delivery']=='pvz') $mail4 .= '<tr><td class="lab">Адрес ПВЗ</td><td><div>'.$order['address'].'</div></td></tr>';
+				if($order['delivery']=='address') $mail4 .= '<tr><td class="lab">Адрес доставки</td><td><div>'.$order['useraddress'].'</div></td></tr>';
+
+				$mail4 .= '<tr><td class="lab">Оплата</td><td><div>';
+				if($order['payment']=='fizlico') $mail4 .= 'как физическое лицо';
+				if($order['payment']=='urlico') $mail4 .= 'счет на юридическое лицо';
+				if($order['payment']=='nalik') $mail4 .= 'при получении';
+				if($order['payment']=='later') $mail4 .= 'определюсь позже';
+				$mail4 .= '<br />(<a target="_blank" href="http://'.$nc_core->url->get_parsed_url('host').nc_folder_path(254,null,null,true).'?s='.$secret.'&c='.$code.'&a=change">выбрать другой способ оплаты</a>)</div></td></tr>';
 
 				$mail4 .= '</table>';
 
-				print $styles;
-				print $mail1.$mail2.$mail3.$mail4.$mail5;
+				$mail5 .= '<h2>Заказ</h2>';
+
+				$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Basket WHERE code='{$code}' AND enabled='y'",ARRAY_A);
+				if(is_array($rr) && count($rr))
+				{
+					$mail5 .= '<table class="tbl2">
+						<tr class="tit">
+							<td class="npp"><div>#</div></td>
+							<td class="name"><div>Наименование</div></td>
+							<td class="sht"><div>Комплект</div></td>
+							<td class="price"><div>Цена комплекта</div></td>
+							<td class="cc"><div>Кол-во комплектов</div></td>
+							<td class="sum"><div>Сумма</div></td>
+						</tr>';
+					foreach($rr AS $key=>$row)
+					{
+						$category= str_replace("\n", " / ", $row['category']);
+						$params= unserialize($row['params']);
+						$options= '';
+						if(is_array($params['options']) && count($params['options']))
+						{
+							foreach($params['options'] AS $opt)
+							{
+								$options .= '<div>&mdash; ';
+								if($opt['subname']) $options .= $opt['subname'].' ';
+								$options .= $opt['name'].' ';
+								$options .= '</div>';
+							}
+						}
+
+						$mail5 .= '<tr class="row">
+							<td class="npp">'.($key+1).'</td>
+							<td class="name"><div>'.$category.'</div><div>'.$row['title'].' ('.$params['description'].')</div><div>'.$options.'</div></td>
+							<td class="sht">'.$row['ed'].'</td>
+							<td class="price"><span>'.Price($row['price']).'</span>&nbsp;<span>руб.</span></td>
+							<td class="cc">'.$row['count'].'</td>
+							<td class="sum"><span>'.Price($row['price']*$row['count']).'</span>&nbsp;<span>руб.</span></td>
+						</tr>';
+					}
+					$mail5 .= '<tr class="itog">
+							<td colspan="2"></td>
+							<td colspan="2"></td>
+							<td colspan="2">'.Price($order['sum']).'&nbsp;руб.</td>
+						</tr>
+						<tr class="itog">
+							<td colspan="2"></td>
+							<td colspan="2">Стоимость доставки</td>
+							<td colspan="2">'.($order['ability_deliver']=='y' ? ''.Price($order['cost_delivery']).'&nbsp;руб.' : 'Наши менеджеры рассчитают стоимость доставки вручную!').'</td>
+						</tr>
+						<tr class="itog">
+							<td colspan="2"></td>
+							<td colspan="2">Сумма заказа</td>
+							<td colspan="2">'.Price($order['itogo']).'&nbsp;руб.</td>
+						</tr>
+					</table>';
+				}
+
+print $styles;print $mail1.$mail2.$mail3.$mail5;
+				$styles= $nc_core->db->escape($styles);
+				$subject= $nc_core->db->escape('Заказ '.substr($code,1).' — оформлен');
+				$emailqq= $nc_core->db->escape($order['email']);
+
+				$body= $nc_core->db->escape($mail1.$mail2.$mail4.$mail5);
+				$nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', `to`='{$emailqq}', subject='{$subject}', body='{$body}', styles='{$styles}', dt=".time());
+
+				$body= $nc_core->db->escape($mail1.$mail2.$mail3.$mail5);
+				// $nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', to='manager1', subject='{$subject}', body='{$body}', styles='{$styles}', dt=".time());
 			}
 		}
 	}
@@ -1118,21 +1245,21 @@ function shopBasketPage_Checkout()
 		if($order['ability_deliver']=='y' && $order['cost_delivery']>0)
 		{
 			$pp .= '<div class="sbpc_sum sbpc_sum2">
-				<div class="sbpcs_right"><nobr><span class="sum font2">'.Price($order['cost_delivery']).'</span> <span class="ruble">руб</span></nobr><div class="svgloading"></div></div>
-				<div class="sbpcs_left"><nobr>Стоимость доставки</nobr></div>
+				<div class="sbpcs_right"><span class="sum font2">'.Price($order['cost_delivery']).'</span>&nbsp;<span class="ruble">руб</span><div class="svgloading"></div></div>
+				<div class="sbpcs_left">Стоимость&nbsp;доставки</div>
 				<br />
 			</div>';
 		}elseif($order['ability_deliver']!='y'){
 			$pp .= '<div class="sbpc_info">
-				<div class="sbpcs_i_itm"><nobr>Наши менеджеры рассчитают стоимость доставки вручную!</nobr></div>
+				<div class="sbpcs_i_itm">Наши менеджеры рассчитают стоимость доставки вручную!</div>
 				<br />
 			</div>';
 		}
 	}
 
 	$pp .= '<div class="sbpc_sum">
-		<div class="sbpcs_right"><nobr><span class="sum font2">'.Price($order['itogo']).'</span> <span class="ruble">руб</span></nobr><div class="svgloading"></div></div>
-		<div class="sbpcs_left"><nobr>Сумма заказа</nobr></div>
+		<div class="sbpcs_right"><span class="sum font2">'.Price($order['itogo']).'</span>&nbsp;<span class="ruble">руб.</span><div class="svgloading"></div></div>
+		<div class="sbpcs_left">Сумма&nbsp;заказа</div>
 		<br />
 	</div>';
 	
