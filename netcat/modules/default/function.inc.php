@@ -13,12 +13,13 @@ D_nfX29970S0
 /*
 - НЕ ЗАБЫТЬ вести историю заказа
 
+- Допилить формы - отправка файлов
 - Удалять временные файлы заказа при оформлении заказа
 - При расчете веса заказа не учитываются коэффициенты опций
 - Ошибка: в корзине слетает город
-- вывод ошибок в корзине
-- принуждать удалять из корзины недействительные позиции
-- на нажатии на оформление - отправлять форму с данными покупателя
++ вывод ошибок в корзине
++ принуждать удалять из корзины недействительные позиции
++ на нажатии на оформление - отправлять форму с данными покупателя
 */
 
 
@@ -45,6 +46,172 @@ function _AJAX()
 	global $nc_core;
 
 	$action= $_GET['a'];
+
+
+
+
+	if($action=='megaform_send')
+	{
+		if($_POST['formid']=='send') exit();
+		$formid= intval($_POST['formid']);
+
+		$pageid= intval($_POST['pageid']);
+		$nm= htmlspecialchars(trim(urldecode($_POST['nm'])));
+		$phn= htmlspecialchars(trim(urldecode($_POST['phn'])));
+		$em= htmlspecialchars(trim(urldecode($_POST['em'])));
+		$prim= htmlspecialchars(trim(urldecode($_POST['prim'])));
+		$otz= htmlspecialchars(trim(urldecode($_POST['otz'])));
+		$otz= str_replace("\r", '', $otz);
+		$otz= str_replace("\n", '<br />', $otz);
+
+		if($phn || $em)
+		{
+			$subjects= array(
+				/*0*/ '',
+				/*1*/ 'Обратный звонок',
+				/*2*/ 'Нужен дизайн макет',
+				/*3*/ 'Есть дизайн макет',
+				/*4*/ 'Отзыв',
+				/*5*/ 'Расчет стоимости',
+				/*6*/ 'Обратный звонок',
+			);
+			if( ! $subjects[$formid]) $subjects[$formid]= 'Письмо';
+
+			$subject= $subjects[$formid].' — '.$nc_core->url->get_parsed_url('host');
+			$mail= '<h2>'.$subject.'</h2>';
+
+			if($pageid) $mail .= '<p><a target="_blank" href="'.nc_folder_url($pageid).'">Отправлено со страницы</a></p>';
+			if($formid!=1 && $formid!=6) $mail .= '<p><b>Имя:</b> '.$nm.'</p>';
+			$mail .= '<p><b>Телефон:</b> +'.$phn.'</p>';
+			if($formid!=1 && $formid!=6) $mail .= '<p><b>E-mail:</b> '.$em.'</p>';
+			if($formid!=6) $mail .= '<p><b>Примечание:</b> '.$prim.'</p>';
+			if($formid==4) $mail .= '<p><b>Отзыв:</b><br />'.$otz.'</p>';
+
+			if($formid==2 || $formid==3 || $formid==5)
+			{
+				if(is_array($_SESSION['megaform']['files']) && count($_SESSION['megaform']['files']))
+				{
+					$mail .= '<p><b>Файлы:</b><br />';
+					foreach($_SESSION['megaform']['files'] AS $row)
+					{
+						$fs= $row[1]; $sn='байт';
+						if($fs>1024){ $fs/=1024; $sn='Кб'; }
+						if($fs>1024){ $fs/=1024; $sn='Мб'; }
+						$fs= round($fs,1);
+						$mail .= '&mdash; <a target="_blank" href="https://'.$nc_core->url->get_parsed_url('host') .'/assets/tmp/forms/'.$_SESSION['megaform']['code'].'/'.$row[2].'">'.$row[0].'</a>, '.$fs.' '.$sn.'<br />';
+					}
+					$mail .= '</p>';
+				}
+			}
+
+			$subject= $nc_core->db->escape($subject);
+			$body= $nc_core->db->escape($mail);
+			$nc_core->db->query("INSERT INTO BN_Queue_Mail SET formid='{$formid}', `to`='[manager1]', subject='{$subject}', body='{$body}', dt=".time());
+		}else{
+			$pupf_err= '<b>Не отправлено!</b><br />Введите номер телефона.';
+			if($formid==6) $pupf_err= 'Ошибка!';
+		}
+		if($pupf_err) print '{"result":"err","answer":"'.$pupf_err.'"}';
+		else{
+			if($formid==6) print '{"result":"ok","answer":"Отправлено!"}';
+				else print '{"result":"ok","answer":"<b>Отправлено!</b><br />В&nbsp;самое&nbsp;ближайшее&nbsp;время с&nbsp;Вами&nbsp;свяжется наш&nbsp;специалист."}';
+		}
+
+		exit();
+	}
+	
+	if($action=='megaform_fileChunkUpload')
+	{
+		$fs= intval($_GET['fs']);
+		$ii= intval($_GET['ii']);
+		$cc= intval($_GET['cc']);
+		$kk= intval($_GET['kk']);
+		$chunk= $_POST['chunkblob'];
+		if(strpos($chunk,',') !== false) $chunk= substr($chunk,strpos($chunk,',')+1);
+		$chunk= base64_decode($chunk);
+		
+		if( ! $_SESSION['megaform']['code'])
+		{
+			$code= 'w'.(date('Y')-2015).date('mdH');
+			$num= 0;
+			do{
+				$num++;
+			}while(file_exists($nc_core->DOCUMENT_ROOT.'/assets/tmp/forms/'.$code.$num.'/'));
+			$code .= $num;
+			mkdir($nc_core->DOCUMENT_ROOT.'/assets/tmp/forms/'.$code.'/', 0777, true);
+			if(file_exists($nc_core->DOCUMENT_ROOT.'/assets/tmp/forms/'.$code.'/')) $_SESSION['megaform']['code']= $code;
+				else exit();
+		}
+		$code= $_SESSION['megaform']['code'];
+
+		$tmpfolder= '/assets/tmp/forms/'.$code.'/';
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder)) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder, 0777, true);
+		
+		$fn= trim(urldecode($_GET['fn']));
+		$fn= generAlias($fn);
+		$fn_bez_fs= $fn;
+		$fn= $fs.'_'.$fn;
+		
+		clearstatcache();
+		
+		$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$kk, 'w');
+		fwrite($fo, $chunk);
+		fclose($fo);
+		
+		$chunkssizesum= 0;
+		for($ww=0; $ww<$cc; $ww++)
+		{
+			$chunkssizesum += filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+		}
+		
+		if($chunkssizesum<$fs)
+		{
+			print $chunkssizesum;
+		}else{
+			print 'lastchunk';
+			
+			$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn, 'w');
+			if($fo)
+			{
+				flock($fo, LOCK_EX);
+				for($ww=0; $ww<$cc; $ww++)
+				{
+					$fo2= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww, 'r');
+					$contents= fread($fo2, filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww));
+					fwrite($fo, $contents);
+					fclose($fo2);
+					unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+				}
+				fclose($fo);
+			}
+			
+			if(filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn)==$fs)
+			{
+				$_SESSION['megaform']['files'][md5($fn)]= array($fn_bez_fs,$fs,$fn);
+			}
+		}
+		exit();
+	}
+
+	if($action=='megaform_Files')
+	{
+		print megaForm_Files();
+		exit();
+	}
+
+	if($action=='megaform_FileDelete')
+	{
+		$file= $_SESSION['megaform']['files'][$_GET['id']];
+		unset($_SESSION['megaform']['files'][$_GET['id']]);
+		unlink($nc_core->DOCUMENT_ROOT.'/assets/tmp/forms/'.$_SESSION['megaform']['code'].'/'.$file[2]);
+		print megaForm_Files();
+		exit();
+	}
+
+
+
+
+
 
 
 
@@ -77,7 +244,7 @@ function _AJAX()
 		
 		$code= getShopOrderStatus_1();
 		
-		$tmpfolder= '/assets/tmp/'.$code.'/';
+		$tmpfolder= '/assets/tmp/orders/'.$code.'/';
 		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder)) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder, 0777, true);
 		
 		$fn= trim(urldecode($_GET['fn']));
@@ -122,7 +289,7 @@ function _AJAX()
 				$row= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$code}' AND `name`='{$fn}' LIMIT 1", ARRAY_A);
 				if(is_array($row) && count($row))
 				{
-					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET enabled='y' WHERE code='{$code}' AND `name`='{$fn}' LIMIT 1");
+					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET location='server', enabled='y' WHERE code='{$code}' AND `name`='{$fn}' LIMIT 1");
 				}else{
 					$nc_core->db->query("INSERT INTO BN_Shop_Order_Files SET code='{$code}', `name`='{$fn}'");
 				}
@@ -152,6 +319,10 @@ function _AJAX()
 			}
 		}
 	}
+
+
+
+
 
 
 
@@ -360,8 +531,8 @@ function _AJAX()
 				$secret .= $code.(substr($code,1)/3.1415).time().$order['itogo'].$order['user'].$order['phone'].$order['email'].$order['pvz'].$order['useraddress'].rand(100,999);
 				$secret= md5($secret);
 
-				// $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."'
-				// 	WHERE code='{$code}' AND status='1', secret='{$secret}' LIMIT 1");
+				$nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."', secret='{$secret}'
+					WHERE code='{$code}' AND status='1' LIMIT 1");
 				print 'go';
 
 				$message= str_replace("\n",'<br />',$order['message']);
@@ -420,12 +591,12 @@ function _AJAX()
 										color: #777;
 									}
 								.tbl2 tr.row td {
-									padding: 10px 26px;
-								border-bottom: 1px solid #ecf1f5;
+									padding: 10px 16px;
+									border-bottom: 1px solid #ecf1f5;
 								}
 								.tbl2 tr.itog td {
 									text-align: right;
-									padding: 15px 24px 0;
+									padding: 15px 16px 0;
 									font-size: 130%;
 								}
 
@@ -469,7 +640,7 @@ function _AJAX()
 						if($row['enabled']=='y') $files_user .= '<div>&mdash; '.$fn[1].'</div>';
 						$files_admin .= '<div>'.($row['enabled']=='y'?'+':'-').' ';
 						if($row['location']=='disk' && $order['files']) $tmp= $order['files'];
-							else $tmp= 'http://'.$nc_core->url->get_parsed_url('host').'/assets/tmp/'.$code.'/'.$row['name'];
+							else $tmp= 'http://'.$nc_core->url->get_parsed_url('host').'/assets/tmp/orders/'.$code.'/'.$row['name'];
 						$files_admin .= '<a target="_blank" href="'.$tmp.'">'.$row['name'].'</a>';
 						$files_admin .= ($row['location']=='disk'?' на диске':' на сервере');
 						$files_admin .= ($row['enabled']!='y'?' &mdash; удален':'').'</div>';
@@ -488,7 +659,7 @@ function _AJAX()
 				if($order['payment']=='urlico') $mail4 .= 'счет на юридическое лицо';
 				if($order['payment']=='nalik') $mail4 .= 'при получении';
 				if($order['payment']=='later') $mail4 .= 'определюсь позже';
-				$mail4 .= '<br />(<a target="_blank" href="http://'.$nc_core->url->get_parsed_url('host').nc_folder_path(254,null,null,true).'?s='.$secret.'&c='.$code.'&a=change">выбрать другой способ оплаты</a>)</div></td></tr>';
+				$mail4 .= '<br />(<a target="_blank" href="'.nc_folder_url(254).'?s='.$secret.'&c='.$code.'&a=change">выбрать другой способ оплаты</a>)</div></td></tr>';
 
 				$mail4 .= '</table>';
 
@@ -543,13 +714,12 @@ function _AJAX()
 						</tr>
 						<tr class="itog">
 							<td colspan="2"></td>
-							<td colspan="2">Сумма заказа</td>
-							<td colspan="2">'.Price($order['itogo']).'&nbsp;руб.</td>
+							<td colspan="2"><b>Сумма заказа</b></td>
+							<td colspan="2"><b>'.Price($order['itogo']).'&nbsp;руб.</b></td>
 						</tr>
 					</table>';
 				}
 
-print $styles;print $mail1.$mail2.$mail3.$mail5;
 				$styles= $nc_core->db->escape($styles);
 				$subject= $nc_core->db->escape('Заказ '.substr($code,1).' — оформлен');
 				$emailqq= $nc_core->db->escape($order['email']);
@@ -557,8 +727,8 @@ print $styles;print $mail1.$mail2.$mail3.$mail5;
 				$body= $nc_core->db->escape($mail1.$mail2.$mail4.$mail5);
 				$nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', `to`='{$emailqq}', subject='{$subject}', body='{$body}', styles='{$styles}', dt=".time());
 
-				$body= $nc_core->db->escape($mail1.$mail2.$mail3.$mail5);
-				// $nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', to='manager1', subject='{$subject}', body='{$body}', styles='{$styles}', dt=".time());
+				$body= $nc_core->db->escape($mail1.$mail3.$mail4.$mail5);
+				$nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', to='[manager666]', subject='{$subject}', body='{$body}', styles='{$styles}', dt=".time());
 			}
 		}
 	}
@@ -743,6 +913,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 	{
 		foreach($subCategories AS $key=>$row)
 		{
+			$optionsdescriptions= array();
+
 			if(!$onlytable)
 			{
 				$markup= getOptions($row['id']);
@@ -790,8 +962,9 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 				$options= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$row[id]} AND enabled='y' ORDER BY ido, ii", ARRAY_A);
 
 				$pp .= '<div class="ct_border ct_border_'.$row['id'].'" data-id="'.$row['id'].'">
-					<div class="ct_left" style="'.(empty($options)?'float:none;width:auto;':'').'">
-						<div class="ct_hd">';
+					<div class="ct_left" style="'.(empty($options)?'float:none;width:auto;':'').'">';
+
+				if($row['name'] || $subinfo['AlterTitle'] || $subinfo['productionTime']) $pp .= '<div class="ct_hd">';
 
 				if($row['name']) $pp .= '<div class="ct_tit ct_tit_'.($key+1).' tiptop" title="'.$subinfo['categoryDescription'].'">'.$row['name'].'</div>';
 				if($subinfo['AlterTitle'])
@@ -801,10 +974,10 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 				}
 
 				if($subinfo['productionTime']) $pp .= '<div class="ct_txt">Срок изготовления '.icon('update').' <span class="tiptop" title="После оплаты и утверждения макета">'.$subinfo['productionTime'].' *</span></div>';
-				$pp .= '<br />
-						</div>
 
-						<div class="ct_c">';
+				if($row['name'] || $subinfo['AlterTitle'] || $subinfo['productionTime']) $pp .= '<br /></div>';
+
+				$pp .= '<div class="ct_c">';
 			}
 
 			$pp .= '<div class="ct_loading">&nbsp;</div>
@@ -866,7 +1039,7 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 							$pp .= '</div>';
 						}
 
-						$pp .= '<div class="ctc_opt">';
+						$pp .= '<div class="ctc_opt ctc_opt_'.$option['type'].'">';
 						if($option['type']=='select') $pp .= '<select class="ido'.$option['ido'].'" name="option['.$option['ido'].']" data-ido="'.$option['ido'].'">';
 						if($option['type']=='radio') $pp .= '<input type="hidden" name="option['.$option['ido'].']" value="'.$option['id'].'" />';
 
@@ -876,7 +1049,18 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 
 					if($option['type']=='select')
 					{
-						$pp .= '<option '.($row['id']==217 && !$firstoptionval ?'class="notfirst"':'').' '.($option['default']=='y'?'selected="selected"':'').' value="'.$option['id'].'">'.$option['name'].'</option>';
+						// if(is_array($optionsdescriptions) && count($optionsdescriptions))
+						// {
+						// 	foreach($optionsdescriptions AS $key2=>$row2)
+						// 	{
+						// 		if($row2[1]==$option['ido']) continue;
+						// 		$md52= md5($row['id'].$row2[2].'; '.$option['name']);
+						// 		$optionsdescriptions[$md52]= array(true, $option['ido'], $row2[2].'; '.$option['name']);
+						// 	}
+						// }
+						$md5= md5($row['id'].$option['name']);
+						$optionsdescriptions[$md5]= array(true, $option['ido'], $option['name']);
+						$pp .= '<option class="'.($row['id']==217 && !$firstoptionval ?'notfirst':'').'" '.($option['default']=='y'?'selected="selected"':'').' value="'.$option['id'].'" data-descr="'.$md5.'">'.$option['name'].'</option>';
 
 					}elseif($option['type']=='checkbox'){
 						$pp .= '<label><input type="checkbox" '.($option['default']=='y'?'checked="checked"':'').' name="option['.$option['ido'].']" value="'.$option['id'].'" /> '.$option['name'].'</label>';
@@ -884,16 +1068,20 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 					}elseif($option['type']=='radio'){
 						if($option['subname']!=$subname)
 						{
-							if($subname)
-							{
-								$pp .= '</div>';
-							}
+							if($subname) $pp .= '</div>';
 							$pp .= '<div class="ctco_point '.(!$subname?'ctco_point_a':'').'">
 								<div class="ctco_p_butt">'.icon('radio_checked','radio_checked').''.icon('radio_unchecked','radio_unchecked').' '.$option['subname'].'</div>';
 							$subname= $option['subname'];
 						}
 						$option['name']= str_replace('м2','м<span class="vkvadrate">2</span>',$option['name']);
 						$pp .= '<div class="ctco_p_itm" data-val="'.$option['id'].'" data-default="'.$option['default'].'">'.$option['name'].'</div>';
+
+					}elseif($option['type']=='count'){
+						$pp .= 'Количество &nbsp;<input class="ctco_p_inp" type="text" name="option['.$option['ido'].']" /> '. $option['name'];
+
+					}elseif($option['type']=='size'){
+						$pp .= icon('warning').' <span>Для рассчета стоимости задайте размер</span>
+						<br /><input class="ctco_p_inp" type="text" name="option['.$option['ido'].'][w]" /> x <input class="ctco_p_inp" type="text" name="option['.$option['ido'].'][h]" /> '. $option['name'];
 					}
 				}
 				if($option_type=='select') $pp .= '</select>';
@@ -905,8 +1093,22 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 
 				$pp .= '<input type="hidden" name="catid" value="'.$row['id'].'" />';
 				$pp .= '</form>
-					</div><!-- /.ct_c -->
-				</div><!-- /.ct_right -->';
+					</div><!-- /.ct_c -->';
+					
+				$rr= $nc_core->db->get_results("SELECT optionsname, content FROM Message178 WHERE Subdivision_ID={$row[id]} AND Checked=1",ARRAY_A);
+				if(is_array($rr) && count($rr))
+				{
+					$pp .= '<div class="ct_optdescriptions">';
+					foreach($rr AS $row2)
+					{
+						$md5= md5($row['id'].$row2['optionsname']);
+						if( ! $optionsdescriptions[$md5]) continue;
+						$pp .= '<div class="ct_optd_itm ct_optd_itm_'.$md5.'" data-descr="'.$md5.'">'.icon('warning').' <span class="as1 dashed">Как это выглядит?</span></div>';
+					}
+					$pp .= '</div>';
+				}
+
+				$pp .= '</div><!-- /.ct_right -->';
 			}
 
 			$pp .= '<br /></div><!-- /.ct_border -->';
@@ -1027,10 +1229,10 @@ function shopBasketCheck_Table()
 {
 	// Вызывать перед тем как изменять инфу по текущему заказу
 	global $nc_core;
-	$user= $nc_core->db->escape('s'.session_id());
 	$code= getShopOrderStatus_1();
 	if($code===false)
 	{
+		$user= $nc_core->db->escape('s'.session_id());
 		$code= 'w'.(date('Y')-2015).date('md');
 		$num= 0;
 		$row= $nc_core->db->get_results("SELECT COUNT(id) AS cc FROM BN_Shop_Order WHERE code LIKE '{$code}%'", ARRAY_A);
@@ -1321,7 +1523,7 @@ function shopBasketPage_Data($onlyfileslist=false)
 
 	$order= getShopOrderStatus_1("*");
 	
-	$tmpfolder= '/assets/tmp/'.$order['code'].'/';
+	$tmpfolder= '/assets/tmp/forms/orders/'.$order['code'].'/';
 	$diskpath= '/ORDERS/'.$order['code'].'/';
 	$rr= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order_Files WHERE code='{$order[code]}' AND enabled='y'",ARRAY_A);
 	if(is_array($rr) && count($rr))
@@ -1329,7 +1531,7 @@ function shopBasketPage_Data($onlyfileslist=false)
 		$pp2 .= '<div class="sbpdt_files_list">';
 		foreach($rr AS $row)
 		{
-			$nm= substr($row['name'],strpos($row['name'],'_')+1);
+			$nm= substr($row['name'], strpos($row['name'],'_')+1);
 			$pp2 .= '<div class="sbpdtfl_itm" data-id="'.$row['id'].'">
 				<div class="sbpdtfli_nm">'.$nm.'</div>
 				<div class="sbpdtfli_del">'.icon('cross').'</div>
@@ -1337,8 +1539,11 @@ function shopBasketPage_Data($onlyfileslist=false)
 			
 			if($row['location']!='disk')
 			{
+				$fsz= substr($row['name'], 0, strpos($row['name'],'_'));
 				$diskresponse= disk('resources/?path='.urlencode($diskpath.$row['name']));
-				if($diskresponse[0]['http_code']==200)
+				$diskresponse_arr= json_decode($diskresponse[1], true);
+					print '=='.$diskresponse_arr['size'].'=='.$fsz.'==';
+				if($diskresponse[0]['http_code']==200 && $diskresponse_arr['size']==$fsz)
 				{
 					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET location='disk' WHERE code='{$order[code]}' AND `name`='{$row[name]}' LIMIT 1");
 					unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$row['name']);
@@ -1365,10 +1570,10 @@ function shopBasketPage_Data($onlyfileslist=false)
 	<div class="sbpdt_value"><input type="text" name="email" data-nm="email" value="'.htmlspecialchars($order['email']).'" /></div><br /></div>';
 
 	$pp .= '<div class="sbpdt_row sbpdt_delivery_address '.($order['delivery']=='address'?'sbpdt_delivery_address_a':'').'"><div class="sbpdt_label">Адрес доставки</div>
-	<div class="sbpdt_value"><textarea name="useraddress" data-nm="useraddress">'.($order['useraddress']).'</textarea></div><br /></div>';
+	<div class="sbpdt_value"><textarea class="textareaautosize" name="useraddress" data-nm="useraddress">'.($order['useraddress']).'</textarea></div><br /></div>';
 
 	$pp .= '<div class="sbpdt_row"><div class="sbpdt_label">Сообщение</div>
-	<div class="sbpdt_value"><textarea name="message" data-nm="message">'.($order['message']).'</textarea></div><br /></div>';
+	<div class="sbpdt_value"><textarea class="textareaautosize" name="message" data-nm="message">'.($order['message']).'</textarea></div><br /></div>';
 
 	$pp .= '</form>';
 
@@ -1454,7 +1659,7 @@ function shopBasketPage_Delivery()
 			{
 				$pp .= '<script src="//api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>';
 				$pp .= '<script type="text/javascript">
-	                var myMap, myMapFlag;
+					var myMap, myMapFlag;
 					function initYaMap()
 					{
 						if(myMapFlag) return;
@@ -1476,8 +1681,8 @@ function shopBasketPage_Delivery()
 							}
 						});
 						closemap.events.add("click",function(){
-				            $(".shopbasket_deliverymap").removeClass("open");
-				            $(".shopbasket_deliverymap").hide();
+							$(".shopbasket_deliverymap").removeClass("open");
+							$(".shopbasket_deliverymap").hide();
 						});
 						myMap.controls.add(closemap, {float:"right"});
 
@@ -1552,70 +1757,70 @@ function shopDeliveryCalculator()
 	}
 
 	$calc= new CalculatePriceDeliveryCdek();
-    $calc->setAuth('fb0fecb33d60d1ee825dedb4be66afd0', '25af75308af93f1b22046032c482c63b');
+	$calc->setAuth('fb0fecb33d60d1ee825dedb4be66afd0', '25af75308af93f1b22046032c482c63b');
 	$calc->setSenderCityId($senderCityId);
 	$calc->setReceiverCityId($receiverCityId);
 
 	// $calc->setTariffId(138);
 	$calc->setModeDeliveryId($ModeDeliveryId);
-    $calc->addTariffPriority(136);
-    $calc->addTariffPriority(137);
-    $calc->addTariffPriority(138);
-    $calc->addTariffPriority(139);
-    $calc->addTariffPriority(233);
-    $calc->addTariffPriority(234);
-    $calc->addTariffPriority(1);
-    $calc->addTariffPriority(5);
-    $calc->addTariffPriority(10);
-    $calc->addTariffPriority(11);
-    $calc->addTariffPriority(12);
-    $calc->addTariffPriority(62);
-    $calc->addTariffPriority(63);
+	$calc->addTariffPriority(136);
+	$calc->addTariffPriority(137);
+	$calc->addTariffPriority(138);
+	$calc->addTariffPriority(139);
+	$calc->addTariffPriority(233);
+	$calc->addTariffPriority(234);
+	$calc->addTariffPriority(1);
+	$calc->addTariffPriority(5);
+	$calc->addTariffPriority(10);
+	$calc->addTariffPriority(11);
+	$calc->addTariffPriority(12);
+	$calc->addTariffPriority(62);
+	$calc->addTariffPriority(63);
 
-    $rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed, bb.params FROM BN_Shop_Basket AS bb
-    	INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
-    	WHERE bb.code='{$order['code']}' AND bb.enabled='y'",ARRAY_A);
-    if(is_array($rr) && count($rr))
-    {
-    	foreach($rr AS $row)
-    	{
-    		if( ! $row['dimensions']) $row['dimensions']= '210x297x50';
+	$rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed, bb.params FROM BN_Shop_Basket AS bb
+		INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
+		WHERE bb.code='{$order['code']}' AND bb.enabled='y'",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		foreach($rr AS $row)
+		{
+			if( ! $row['dimensions']) $row['dimensions']= '210x297x50';
 
-    		$weight= floatval($row['weight']);
-    		$weight_flag= ($weight?true:false);
-    		$options= unserialize($row['params']);
-    		$options= $options['options'];
-    		// print_r($options);
-    		if(is_array($options) && count($options))
-    		{
-    			foreach($options AS $opt)
-    			{
-    				if( ! $weight_flag && floatval($opt['weight']))
-    				{
-    					$weight= $opt['weight'];
-    					break;
-    				}
-    				if($weight_flag)
-    				{
-    					if(floatval($opt['weight'])) $weight *= floatval($opt['weight']);
-    				}
-    			}
-    		}
-    		if( ! floatval($weight)) $weight= 300;
+			$weight= floatval($row['weight']);
+			$weight_flag= ($weight?true:false);
+			$options= unserialize($row['params']);
+			$options= $options['options'];
+			// print_r($options);
+			if(is_array($options) && count($options))
+			{
+				foreach($options AS $opt)
+				{
+					if( ! $weight_flag && floatval($opt['weight']))
+					{
+						$weight= $opt['weight'];
+						break;
+					}
+					if($weight_flag)
+					{
+						if(floatval($opt['weight'])) $weight *= floatval($opt['weight']);
+					}
+				}
+			}
+			if( ! floatval($weight)) $weight= 300;
 
    //  		print_r(array(
    //  			'weight2'=>$weight,
 			// ));
 
-    		$ed= intval(preg_replace("/[^0-9]/", '', $row['ed']));
-    		$dimensions= explode('x', $row['dimensions']);
-    		$dimensions0= ceil(intval($dimensions[0])/10);
-    		$dimensions1= ceil(intval($dimensions[1])/10);
-    		$dimensions2= intval($dimensions[2]) *($ed/100);
-    		$dimensions2= ceil($dimensions2/10);
-    		$volume= ($dimensions[0]/1000)*($dimensions[1]/1000);
-    		$weight= ceil($volume*floatval($weight)*$ed);
-    		$weight= floatval($weight/1000);
+			$ed= intval(preg_replace("/[^0-9]/", '', $row['ed']));
+			$dimensions= explode('x', $row['dimensions']);
+			$dimensions0= ceil(intval($dimensions[0])/10);
+			$dimensions1= ceil(intval($dimensions[1])/10);
+			$dimensions2= intval($dimensions[2]) *($ed/100);
+			$dimensions2= ceil($dimensions2/10);
+			$volume= ($dimensions[0]/1000)*($dimensions[1]/1000);
+			$weight= ceil($volume*floatval($weight)*$ed);
+			$weight= floatval($weight/1000);
 
    //  		print_r(array(
    //  			'ed1'=>$ed,
@@ -1629,8 +1834,8 @@ function shopDeliveryCalculator()
 			// ));
 
 			for($kk=1; $kk<=$row['count']; $kk++) $calc->addGoodsItemBySize($weight, $dimensions0,$dimensions1,$dimensions2);
-    	}
-    }
+		}
+	}
 
 	if($calc->calculate()===true)
 	{
@@ -1955,6 +2160,24 @@ function myCity_Init()
 
 // FUNCTIONS -------------------------------------------------------------------
 
+
+function megaForm_Files()
+{
+	$pp .= '<div class="mfb_files_list">';
+	if(is_array($_SESSION['megaform']['files']) && count($_SESSION['megaform']['files']))
+	{
+		foreach($_SESSION['megaform']['files'] AS $key => $row)
+		{
+			$pp .= '<div class="sbpdtfl_itm" data-id="'.$key.'">
+				<div class="sbpdtfli_nm">'.$row[0].'</div>
+				<div class="sbpdtfli_del">'.icon('cross').'</div>
+			</div>';
+		}
+	}
+	$pp .= '</div>';
+	return $pp;
+}
+
 function keyboardLayout($txt)
 {
 	$arr= array(
@@ -1970,14 +2193,14 @@ function keyboardLayout($txt)
 function generAlias($alias)
 {
 	$trans= array("а"=>"a", "б"=>"b", "в"=>"v", "г"=>"g", "д"=>"d", "е"=>"e",
-        "ё"=>"jo", "ж"=>"zh", "з"=>"z", "и"=>"i", "й"=>"jj", "к"=>"k", "л"=>"l",
-        "м"=>"m", "н"=>"n", "о"=>"o", "п"=>"p", "р"=>"r", "с"=>"s", "т"=>"t", "у"=>"u",
-        "ф"=>"f", "х"=>"kh", "ц"=>"c", "ч"=>"ch", "ш"=>"sh", "щ"=>"shh", "ы"=>"y",
-        "э"=>"eh", "ю"=>"yu", "я"=>"ya", "А"=>"a", "Б"=>"b", "В"=>"v", "Г"=>"g",
-        "Д"=>"d", "Е"=>"e", "Ё"=>"jo", "Ж"=>"zh", "З"=>"z", "И"=>"i", "Й"=>"jj",
-        "К"=>"k", "Л"=>"l", "М"=>"m", "Н"=>"n", "О"=>"o", "П"=>"p", "Р"=>"r", "С"=>"s",
-        "Т"=>"t", "У"=>"u", "Ф"=>"f", "Х"=>"kh", "Ц"=>"c", "Ч"=>"ch", "Ш"=>"sh",
-        "Щ"=>"shh", "Ы"=>"y", "Э"=>"eh", "Ю"=>"yu", "Я"=>"ya");
+		"ё"=>"jo", "ж"=>"zh", "з"=>"z", "и"=>"i", "й"=>"jj", "к"=>"k", "л"=>"l",
+		"м"=>"m", "н"=>"n", "о"=>"o", "п"=>"p", "р"=>"r", "с"=>"s", "т"=>"t", "у"=>"u",
+		"ф"=>"f", "х"=>"kh", "ц"=>"c", "ч"=>"ch", "ш"=>"sh", "щ"=>"shh", "ы"=>"y",
+		"э"=>"eh", "ю"=>"yu", "я"=>"ya", "А"=>"a", "Б"=>"b", "В"=>"v", "Г"=>"g",
+		"Д"=>"d", "Е"=>"e", "Ё"=>"jo", "Ж"=>"zh", "З"=>"z", "И"=>"i", "Й"=>"jj",
+		"К"=>"k", "Л"=>"l", "М"=>"m", "Н"=>"n", "О"=>"o", "П"=>"p", "Р"=>"r", "С"=>"s",
+		"Т"=>"t", "У"=>"u", "Ф"=>"f", "Х"=>"kh", "Ц"=>"c", "Ч"=>"ch", "Ш"=>"sh",
+		"Щ"=>"shh", "Ы"=>"y", "Э"=>"eh", "Ю"=>"yu", "Я"=>"ya");
 	$alias= strip_tags(strtr($alias, $trans));
 	$alias= strtolower($alias);
 	$alias= preg_replace("/[^a-z0-9-\.]/", "-", $alias);
@@ -2084,7 +2307,7 @@ function text_gradient($text, $from, $to)
 	return $result;
 }
 
-function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $wm=false, $fullpath=false, $r=false)
+function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $wm=false, $fullpath=false, $quality=80, $r=false)
 {
 	global $nc_core;
 	// v7.2
@@ -2137,7 +2360,6 @@ function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $w
 	$filter= (empty($filter) ? -1 : $filter);
 	$refresh= (empty($r) ? false : true);
 	$ellipse= ($ellipse == 'max' ? 'max' : intval($ellipse));
-	$quality= 100;
 	$quality= intval($quality);
 	if($quality === 0) $quality= ($_GET['ww']<=800 ? 60 : 80);
 	else $quality= ($quality<0 || $quality>100 ? 80 : $quality);
@@ -2180,7 +2402,7 @@ function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $w
 		$newimg_path= $root.$toimg;
 		$newimg_path_return= ($fullpath ? MODX_SITE_URL : ($slashflag?DIRECTORY_SEPARATOR:'').($baseflag?$base:'')) .$toimg;
 	}
-	if( ! file_exists($newimg_path) || filemtime($root.$img) > filemtime($newimg_path)) $refresh= true;
+	if( ! file_exists($newimg_path) || filectime($root.$img) > filectime($newimg_path)) $refresh= true;
 	if(filesize($root.$img) > 1024*1024*10) return $img;
 	//--------------------------------------------------------------------------------------
 	if( $refresh )
