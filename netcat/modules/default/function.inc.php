@@ -805,8 +805,9 @@ function _AJAX()
 		$catid= intval($_POST['catid']);
 		$editions_large= ($_POST['editions_large']=='y'?true:false);
 		$options= $_POST['option'];
+		$values= $_POST['values'];
 		$options= getOptions($catid, $options);
-		print _CATALOG($catid, true, $options[0], $editions_large);
+		print _CATALOG($catid, true, $options[0], $editions_large, $values);
 	}
 
 	if($action=='shopHeaderBasket')
@@ -852,7 +853,7 @@ function paymentForm()
 
 //--------------------------- CATALOG ------------------------------------------
 
-function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
+function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $values=false)
 {
 	global $nc_core;
 
@@ -862,14 +863,16 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 
 	if($id==189)
 	{
-		$subBigCategories= $nc_core->db->get_results("SELECT Subdivision_ID AS id, Subdivision_Name AS name FROM Subdivision WHERE Parent_Sub_ID={$id} AND Checked=1 ORDER BY Priority", ARRAY_A);
+		$subBigCategories= $nc_core->db->get_results("SELECT Subdivision_ID AS id, Subdivision_Name AS name FROM Subdivision
+			WHERE Parent_Sub_ID={$id} AND Checked=1 ORDER BY Priority", ARRAY_A);
 		if(is_array($subBigCategories) && count($subBigCategories))
 		{
 			foreach($subBigCategories AS $row)
 			{
 				$subinfo= $nc_core->subdivision->get_by_id($row['id']);
 
-				$subCategories= $nc_core->db->get_results("SELECT Subdivision_Name AS name FROM Subdivision WHERE Parent_Sub_ID={$row[id]} AND Checked=1 ORDER BY Priority", ARRAY_A);
+				$subCategories= $nc_core->db->get_results("SELECT Subdivision_Name AS name FROM Subdivision
+					WHERE Parent_Sub_ID={$row[id]} AND Checked=1 ORDER BY Priority", ARRAY_A);
 
 				$tabs .= '<div class="bc_tab '.(empty($tabs)?'bc_tab_a':'').'" data-id="'.$row['id'].'">
 					<div class="bc_t_img"><img src="'.ImgCrop72($subinfo['PageImage'],150,150,false,true).'" /></div>
@@ -907,7 +910,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 
 	if(!$onlytable) $pp .= '<div class="box_catalog"><div class="catalog">';
 
-	if(!$onlytable) $subCategories= $nc_core->db->get_results("SELECT Subdivision_ID AS id, Subdivision_Name AS name FROM Subdivision WHERE Parent_Sub_ID={$id} AND Checked=1 ORDER BY Priority", ARRAY_A);
+	if(!$onlytable) $subCategories= $nc_core->db->get_results("SELECT Subdivision_ID AS id, Subdivision_Name AS name FROM Subdivision
+		WHERE Parent_Sub_ID={$id} AND Checked=1 ORDER BY Priority", ARRAY_A);
 	if(empty($subCategories)) $subCategories[]= array('id'=>$id, 'name'=>false);
 	if(is_array($subCategories) && count($subCategories))
 	{
@@ -921,15 +925,34 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 				$markup= $markup[0];
 			}
 
+			$value= 0;
+			if(is_array($values) && count($values))
+			{
+				foreach($values AS $val)
+				{
+					if($val['c'])
+					{
+						$value= intval($val['c']);
+					}elseif($val['w'] && $val['h']){
+						$val['w']= intval($val['w']);
+						$val['h']= intval($val['h']);
+						$val['w'] /= 1000;
+						$val['h'] /= 1000;
+						$value= round($val['w'] * $val['h']);
+					}
+				}
+			}
+
 			$subinfo= $nc_core->subdivision->get_by_id($row['id']);
 
+			$valuekey= false;
 			$tablepp= '';
 			$editions_first= false;
 			$editions_large_flag= false;
 			$items= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog WHERE parent={$row[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
 			if(is_array($items) && count($items))
 			{
-				foreach($items AS $item)
+				foreach($items AS $itemkey => $item)
 				{
 					$editions= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Edition WHERE idi={$item[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
 					if( ! $editions_first)
@@ -939,6 +962,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 					}
 					$item['name']= str_replace('м2','м<span class="vkvadrate">2</span>',$item['name']);
 					$tablepp .= '<tr><td class="ctt_name">'.($item['description']?'<span class="tiptop" title="'.$item['description'].'">'.$item['name'].'</span>':$item['name']).'</td>';
+
+					$valueflag= false;
 					foreach($editions AS $keyedition=>$edition)
 					{
 						if($editions_large_flag)
@@ -946,12 +971,35 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 							if( ! $editions_large && $keyedition>=7) break;
 							elseif($editions_large && $keyedition<7) continue;
 						}
-						$edition_markup= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
-						$edition_markup *= $markup;
+
+						$ed= (strpos($edition['edition'],'м2')!==false?'м<span class="vkvadrate">2</span>':'шт.');
+						$rangeflag= false;
+						if(strpos($edition['edition'], '-')!==false) $rangeflag= true;
+						if(preg_match("/^[^0-9]/", $edition['edition'])) $rangeflag= true;
+
+						$editionval= $edition['edition'];
+						if($rangeflag && strpos($editionval, '-')!==false)
+							$editionval= substr($editionval, strpos($editionval, '-')+1);
+						$editionval= str_replace('м2', '', $editionval);
+
+						$editionval= intval(preg_replace("/[^0-9]/", '', $editionval));
+						$edition_markup= $markup;
+						if( ! $rangeflag) $edition_markup *= $editionval;
 						$price= $edition['price'];
 						if($edition_markup) $price += $edition_markup;
 						$price= round($price);
-						$tablepp .= '<td class="ctt_itm" data-edition="'.$edition['id'].'"><span class="price">'.Price($price).'</span> <span class="ruble">руб</span><span class="check">'.icon('check').'</span></td>';
+						$tablepp .= '<td '.$editionval.' class="'.($rangeflag?'ctt_itm_disabled':'ctt_itm').'" '.($rangeflag?'':'data-edition="'.$edition['id'].'"').'><span class="price">'.Price($price).'</span> <span class="ed"><span class="ruble">руб</span>'.($rangeflag?' /'.$ed:'').'</span><span class="check">'.icon('check').'</span></td>';
+
+						if(! $valueflag && $value && ($value<=$editionval || $keyedition==count($editions)-1))
+						{
+							$valueflag= true;
+							if($rangeflag)
+							{
+								$valueprice= $price * $value;
+								$valuekey= $keyedition;
+								$tablepp .= '<td class="ctt_itm ctt_itm_myedition '.($itemkey==count($items)-1?'ctt_itm_myedition_last':'').'" data-edition="'.$edition['id'].'"><span class="price">'.Price($valueprice).'</span> <span class="ed"><span class="ruble">руб</span></span><span class="check">'.icon('check').'</span></td>';
+							}
+						}
 					}
 					$tablepp .= '</tr>';
 				}
@@ -994,6 +1042,11 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 				$edition['edition']= str_replace('шт.','<span>шт.</span>',$edition['edition']);
 				$edition['edition']= str_replace('м2','<span>м<span class="vkvadrate">2</span></span>',$edition['edition']);
 				$pp .= '<td>'.$edition['edition'].'</td>';
+
+				if($valuekey!==false && $valuekey==$keyedition)
+				{
+					$pp .= '<td class="cttt_td_myedition">'.$value.' <span>'.$ed.'</span></td>';
+				}
 			}
 			$pp .= '</tr>';
 			$pp .= $tablepp;
@@ -1077,11 +1130,14 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false)
 						$pp .= '<div class="ctco_p_itm" data-val="'.$option['id'].'" data-default="'.$option['default'].'">'.$option['name'].'</div>';
 
 					}elseif($option['type']=='count'){
-						$pp .= 'Количество &nbsp;<input class="ctco_p_inp" type="text" name="option['.$option['ido'].']" /> '. $option['name'];
+						$pp .= icon('warning').' <span>Для&nbsp;расчета&nbsp;стоимости укажите&nbsp;количество</span>
+						<br /><input class="ctco_p_inp" type="text" name="values['.$option['ido'].'][c]" /> '. $option['name'];
+						$pp .= '&nbsp; <div class="ctco_p_ok">OK</div>';
 
 					}elseif($option['type']=='size'){
-						$pp .= icon('warning').' <span>Для рассчета стоимости задайте размер</span>
-						<br /><input class="ctco_p_inp" type="text" name="option['.$option['ido'].'][w]" /> x <input class="ctco_p_inp" type="text" name="option['.$option['ido'].'][h]" /> '. $option['name'];
+						$pp .= icon('warning').' <span>Для&nbsp;расчета&nbsp;стоимости задайте&nbsp;размер</span>
+						<br /><input class="ctco_p_inp ctco_p_inp_mini" type="text" name="values['.$option['ido'].'][w]" /> x <input class="ctco_p_inp ctco_p_inp_mini" type="text" name="values['.$option['ido'].'][h]" /> '. $option['name'];
+						$pp .= '&nbsp; <div class="ctco_p_ok">OK</div>';
 					}
 				}
 				if($option_type=='select') $pp .= '</select>';
@@ -1171,8 +1227,13 @@ function getOptions($catid, $setoptions=false, $basketoptions=false)
 	{
 		foreach($rr AS $row)
 		{
-			$defoptions[$row['ido']]= array($row['id'], ($row['type']!='checkbox' || $row['default']=='y'?true:false), false, $row['type']); // array(option_id, учитывать markup, определено, option_type);
-			if($row['type']!='checkbox' || $row['default']=='y')
+			$defoptions[$row['ido']]= array(
+				$row['id'],
+				(($row['type']!='checkbox' && $row['type']!='size' && $row['type']!='count') || $row['default']=='y'?true:false),
+				false,
+				$row['type']
+			); // array(option_id, учитывать markup, определено, option_type);
+			if(($row['type']!='checkbox' && $row['type']!='size' && $row['type']!='count') || $row['default']=='y')
 			{
 				$markup += floatval($row['markup']);
 				$options[$row['ido']]= $row;
@@ -1204,13 +1265,13 @@ function getOptions($catid, $setoptions=false, $basketoptions=false)
 	{
 		foreach($defoptions AS $ido=>$opt)
 		{
-			if( ! $opt[2] && $opt[3]!='checkbox') return false;
+			if( ! $opt[2] && $opt[3]!='checkbox' && $opt[3]!='size' && $opt[3]!='count') return false;
 			$ido= intval($ido);
 			$opt[0]= intval($opt[0]);
 			$row= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Option WHERE parent={$catid} AND ido={$ido} AND id={$opt[0]} AND enabled='y' LIMIT 1", ARRAY_A);
-			if( ! $row) return false;
+			if( ! $row && $opt[3]!='size' && $opt[3]!='count') return false;
 			if($opt[2]) $markup += floatval($row[0]['markup']);
-			if($opt[3]!='checkbox' || $opt[2]) $options[$ido]= $row[0];
+			if(($opt[3]!='checkbox' && $opt[3]!='size' && $opt[3]!='count') || $opt[2]) $options[$ido]= $row[0];
 		}
 	}
 	return array(floatval($markup), $options);
@@ -1542,7 +1603,6 @@ function shopBasketPage_Data($onlyfileslist=false)
 				$fsz= substr($row['name'], 0, strpos($row['name'],'_'));
 				$diskresponse= disk('resources/?path='.urlencode($diskpath.$row['name']));
 				$diskresponse_arr= json_decode($diskresponse[1], true);
-					print '=='.$diskresponse_arr['size'].'=='.$fsz.'==';
 				if($diskresponse[0]['http_code']==200 && $diskresponse_arr['size']==$fsz)
 				{
 					$nc_core->db->query("UPDATE BN_Shop_Order_Files SET location='disk' WHERE code='{$order[code]}' AND `name`='{$row[name]}' LIMIT 1");
