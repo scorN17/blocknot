@@ -2,8 +2,6 @@
 
 /*
 block-not-ru@yandex.ru
-D_nfX29970S0
-Киногерой: HofEIp_tqy1d
 */
 
 
@@ -21,22 +19,6 @@ D_nfX29970S0
 + принуждать удалять из корзины недействительные позиции
 + на нажатии на оформление - отправлять форму с данными покупателя
 */
-
-
-
-
-
-
-
-function YaKa($info)
-{
-	$infos= array(
-		'shopid' => '78611',
-		'scid' => '543940',
-		'shoppassword' => '3f_6mZqVRTMv9_uOvXji',
-	);
-	return $infos[$info];
-}
 
 
 
