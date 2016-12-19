@@ -1,10 +1,5 @@
 <?php
 
-/*
-*/
-
-
-
 
 
 /*
@@ -26,33 +21,11 @@
 
 
 
-/*
-- НЕ ЗАБЫТЬ вести историю заказа
-
-- искать метки scorN - продолжить код
-
-- Оформить страниц Success и Fail
-- Допилить формы - отправка файлов
-- Удалять временные файлы заказа при оформлении заказа
-- При расчете веса заказа не учитываются коэффициенты опций
-- Ошибка: в корзине слетает город
-+ вывод ошибок в корзине
-+ принуждать удалять из корзины недействительные позиции
-+ на нажатии на оформление - отправлять форму с данными покупателя
-*/
-
-
-
-
-
 
 
 function YaKa($info)
 {
 	$infos= array(
-		'shopid' => '',
-		'scid' => '',
-		'shoppassword' => '',
 	);
 	return $infos[$info];
 }
@@ -924,6 +897,45 @@ function _AJAX()
 				}
 			}
 
+			$rr= $nc_core->db->get_results("SELECT Message_ID,clrs_cat,clrs_subcat,clrs_img,clrs_size,clrs_name FROM Message171
+				WHERE Subdivision_ID={$catid} AND Checked=1 ORDER BY clrs_subcat,Priority",ARRAY_A);
+			if(is_array($rr) && count($rr))
+			{
+				print '<div class="ct_k_bloki">';
+				$tit= false;
+				foreach($rr AS $row)
+				{
+					if( ! $row['clrs_size']) continue;
+					$size= $row['clrs_size'];
+					$rr2= $nc_core->db->get_results("SELECT * FROM Classificator_catalog_kalendari_bloki_size WHERE Checked=1",ARRAY_A);
+					foreach($rr2 AS $row2)
+					{
+						$size= str_replace(','.$row2['catalog_kalendari_bloki_size_ID'].',', ','.$row2['catalog_kalendari_bloki_size_Name'].',', $size);
+					}
+					$size= explode(',', trim($size, ','));
+					foreach($options[1] AS $opt)
+					{
+						foreach($size AS $sz)
+						{
+							if(strpos($opt['name'], $sz)!==false)
+							{
+								if($row['clrs_subcat']!=$tit)
+								{
+									$tit= $row['clrs_subcat'];
+									print '<br /><div class="ct_kb_tit font2">'.$row['clrs_subcat'].'</div>';
+								}
+								$img= explode(':', $row['clrs_img']);
+								print '<div class="ct_kb_itm" data-kbid="'.$row['Message_ID'].'" data-img2="'.ImgCrop72('/netcat_files/'.$img[3],150,0,false,false,null,null,null,100).'"
+									data-img3="'.ImgCrop72('/netcat_files/'.$img[3],666,666,false,false,null,null,null,100).'">
+									<div class="ct_kbi_img"><img src="'.ImgCrop72('/netcat_files/'.$img[3],150,150,false,true,null,null,null,100).'" /></div>';
+								print '</div>';
+							}
+						}
+					}
+				}
+				print '<br /></div>';
+			}
+
 			$rr= $nc_core->db->get_results("SELECT optionsname, content FROM Message179 WHERE Subdivision_ID={$catid} AND Checked=1",ARRAY_A);
 			if(is_array($rr) && count($rr))
 			{
@@ -1307,19 +1319,7 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 					if($option['type']=='select')
 					{
-						// if(is_array($optionslistmd5) && count($optionslistmd5))
-						// {
-						// 	foreach($optionslistmd5 AS $key2=>$row2)
-						// 	{
-						// 		if($row2[1]==$option['ido']) continue;
-						// 		$md52= md5($row['id'].$row2[2].'; '.$option['name']);
-						// 		$optionslistmd5[$md52]= array(true, $option['ido'], $row2[2].'; '.$option['name']);
-						// 	}
-						// }
-						$md5= md5($row['id'].$option['name']);
-						$optionslistmd5[$md5]= array(true, $option['ido'], $option['name']);
-
-						$pp .= '<option class="'.($row['id']==217 && !$firstoptionval ?'notfirst':'').'" '.($option['default']=='y'?'selected="selected"':'').' value="'.$option['id'].'" data-descr="'.$md5.'">'.$option['name'].'</option>';
+						$pp .= '<option class="'.($row['id']==217 && !$firstoptionval ?'notfirst':'').'" '.($option['default']=='y'?'selected="selected"':'').' value="'.$option['id'].'">'.$option['name'].'</option>';
 
 					}elseif($option['type']=='checkbox'){
 						$pp .= '<label><input type="checkbox" '.($option['default']=='y'?'checked="checked"':'').' name="option['.$option['ido'].']" value="'.$option['id'].'" /> '.$option['name'].'</label>';
@@ -1352,48 +1352,30 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 				$subinfo['catalogOptionTxt']= str_replace('м2','м<span class="vkvadrate">2</span>',$subinfo['catalogOptionTxt']);
 				$pp .= '<div class="ctc_opttxt">'.$subinfo['catalogOptionTxt'].'</div>';
+					
+				$pp .= '<div class="ct_opthowitlooks_butt">'.icon('warning').' <span class="as1 dashed">Как это выглядит?</span></div>';
+
+
+				if($row['id']==234 || $row['id']==235)
+				{
+					$pp .= '<div class="ct_kbloki_selected">
+						<div class="ct_kbs_tit font2">Выберите дизайн календарного блока</div>
+						<div class="ct_kbs_sel"><img src="assets/images/krivayastrelka2.svg" /></div>
+					</div>';
+				}
+
+
 
 				$pp .= '<input type="hidden" name="catid" value="'.$row['id'].'" />';
 				$pp .= '</form>
 					</div><!-- /.ct_c -->';
-					
-				// Как это выглядит?
-				// $rr= $nc_core->db->get_results("SELECT optionsname, content FROM Message178 WHERE Subdivision_ID={$row[id]} AND Checked=1",ARRAY_A);
-				// if(is_array($rr) && count($rr))
-				// {
-				// 	$pp .= '<div class="ct_optdescriptions">';
-				// 	foreach($rr AS $row2)
-				// 	{
-				// 		$md5= md5($row['id'].$row2['optionsname']);
-				// 		if( ! $optionslistmd5[$md5]) continue;
-				// 		$pp .= '<div class="ct_optd_itm ct_optd_itm_'.$md5.'" data-descr="'.$md5.'">'.icon('warning').' <span class="as1 dashed">Как это выглядит?</span></div>';
-				// 	}
-				// 	$pp .= '</div>';
-				// }
-				$pp .= '<div class="ct_opthowitlooks_butt">'.icon('warning').' <span class="as1 dashed">Как это выглядит?</span></div>';
-				// Как это выглядит?
-
 				$pp .= '</div><!-- /.ct_right -->';
 			}
 
 			$pp .= '<br /></div><!-- /.ct_border -->';
 
 
-			// Контент опций
-			$pp .= '<div class="optionscontent optionscontent_'.$row['id'].'"></div>';
-			// $rr= $nc_core->db->get_results("SELECT optionsname, content FROM Message179 WHERE Subdivision_ID={$row[id]} AND Checked=1",ARRAY_A);
-			// if(is_array($rr) && count($rr))
-			// {
-			// 	$pp .= '<div class="ct_optcontents">';
-			// 	foreach($rr AS $row2)
-			// 	{
-			// 		$md5= md5($row['id'].$row2['optionsname']);
-			// 		if( ! $optionslistmd5[$md5]) continue;
-			// 		$pp .= '<div class="ct_optc_itm">'.$row2['content'].'</div>';
-			// 	}
-			// 	$pp .= '</div>';
-			// }
-			// Контент опций
+			$pp .= '<div class="optionscontent optionscontent_'.$row['id'].'" data-catid="'.$row['id'].'"></div>';
 
 
 			$contents= $nc_core->sub_class->get_by_subdivision_id($row['id']);
@@ -2142,6 +2124,7 @@ function shopDeliveryCalculator()
 	if($calc->calculate()===true)
 	{
 		$calcres= $calc->getResult();
+		$calcres['result']['price'] *= 1.1;
 		return array(true, $calcres['result']['price'], array($calcres['result']['deliveryPeriodMin'],$calcres['result']['deliveryPeriodMax']), $calcres['result']['tariffId']);
 	}else{
 		$calcerr= $calc->getError();
