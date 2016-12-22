@@ -1,17 +1,16 @@
 <?php
 
 
-
 /*
-	1 - Неоформленный заказ
-	5 - Заказ оформлен - готов к оплате
-	10 - Производство
-	20 - Отправка
-	30 - Доставка
-	40 - Ожидание заказчика в ПВЗ
-	50 - Доставка по адресу
-	60 - Ожидание оплаты
-	70 - Завершено
+	1   - Неоформленный заказ
+	5   - Заказ оформлен - готов к оплате
+	10  - Производство
+	20  - Отправка
+	30  - Доставка
+	40  - Ожидание заказчика в ПВЗ
+	50  - Доставка по адресу
+	60  - Ожидание оплаты
+	70  - Завершено
 	100 - Возврат товара
 	200 - Отмена заказа заказчиком
 	210 - Отмена заказа администратором
@@ -47,14 +46,14 @@ function _AJAX()
 		if($_POST['formid']=='send') exit();
 		$formid= intval($_POST['formid']);
 
-		$pageid= intval($_POST['pageid']);
-		$nm= htmlspecialchars(trim(urldecode($_POST['nm'])));
-		$phn= htmlspecialchars(trim(urldecode($_POST['phn'])));
-		$em= htmlspecialchars(trim(urldecode($_POST['em'])));
-		$prim= htmlspecialchars(trim(urldecode($_POST['prim'])));
-		$otz= htmlspecialchars(trim(urldecode($_POST['otz'])));
-		$otz= str_replace("\r", '', $otz);
-		$otz= str_replace("\n", '<br />', $otz);
+		$pageid = intval($_POST['pageid']);
+		$nm     = htmlspecialchars(trim(urldecode($_POST['nm'])));
+		$phn    = htmlspecialchars(trim(urldecode($_POST['phn'])));
+		$em     = htmlspecialchars(trim(urldecode($_POST['em'])));
+		$prim   = htmlspecialchars(trim(urldecode($_POST['prim'])));
+		$otz    = htmlspecialchars(trim(urldecode($_POST['otz'])));
+		$otz    = str_replace("\r", '', $otz);
+		$otz    = str_replace("\n", '<br />', $otz);
 
 		if($phn || $em)
 		{
@@ -500,12 +499,12 @@ function _AJAX()
 
 			$code= getShopOrderStatus_1();
 
-			$fio= $nc_core->db->escape(trim(urldecode($_POST['fio'])));
-			$email= $nc_core->db->escape(strtolower(trim(urldecode($_POST['email']))));
-			$useraddress= $nc_core->db->escape(trim(urldecode($_POST['useraddress'])));
-			$message= $nc_core->db->escape(trim(urldecode($_POST['message'])));
-			$phone= $_POST['phone'];
-			$phone= '+'.preg_replace("/[^0-9]/",'',$phone);
+			$fio         = $nc_core->db->escape(trim(urldecode($_POST['fio'])));
+			$email       = $nc_core->db->escape(strtolower(trim(urldecode($_POST['email']))));
+			$useraddress = $nc_core->db->escape(trim(urldecode($_POST['useraddress'])));
+			$message     = $nc_core->db->escape(trim(urldecode($_POST['message'])));
+			$phone       = $_POST['phone'];
+			$phone       = '+'.preg_replace("/[^0-9]/",'',$phone);
 
 			$nc_core->db->query("UPDATE BN_Shop_Order SET fio='{$fio}', email='{$email}', phone='{$phone}', useraddress='{$useraddress}', message='{$message}' WHERE code='{$code}' LIMIT 1");
 
@@ -777,13 +776,26 @@ function _AJAX()
 		shopBasketCheck_Table();
 		shopBasketCheck_Items();
 
-		$catid= intval($_GET['catid']);
-		$edition= intval($_GET['edition']);
-		$options= $_POST['option'];
-		$options_values= $_POST['values'];
+		$catid          = intval($_GET['catid']);
+		$kbid           = intval($_POST['kbid']);
+		$edition        = intval($_GET['edition']);
+		$options        = $_POST['option'];
+		$options_values = $_POST['values'];
 
 		if($catid && $edition)
 		{
+			if($catid==234 || $catid==235)
+			{
+				if($kbid)
+				{
+					$row= $nc_core->db->get_results("SELECT clrs_name FROM Message171 WHERE Subdivision_ID={$catid} AND Message_ID={$kbid} AND Checked=1 LIMIT 1",ARRAY_A);
+					if(is_array($row) && count($row))
+					{
+						$params['params'][]= 'Блок: '.$row[0]['clrs_name'];
+					}else exit();
+				}else exit();
+			}
+
 			$row= $nc_core->db->get_results("SELECT cc.id AS ccid, ee.id AS eeid, ee.edition, cc.name, cc.description, ee.price, ee.range FROM BN_PG_Catalog AS cc
 				INNER JOIN BN_PG_Catalog_Edition AS ee ON ee.idi=cc.id
 					WHERE cc.parent={$catid} AND ee.id={$edition} AND ee.enabled='y' AND cc.enabled='y' LIMIT 1", ARRAY_A);
@@ -860,7 +872,7 @@ function _AJAX()
 				$params= $nc_core->db->escape($params);
 				$categorytxt= $nc_core->db->escape($categorytxt);
 				
-				$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND itemid={$row[ccid]} AND uniq='{$uniq}' LIMIT 1", ARRAY_A);
+				$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND itemid={$row[ccid]} AND uniq='{$uniq}' LIMIT 1",ARRAY_A);
 				if(is_array($rr) && count($rr))
 				{
 					$nc_core->db->query("UPDATE BN_Shop_Basket SET count=count+1 WHERE id={$rr[0][id]} LIMIT 1");
@@ -870,6 +882,42 @@ function _AJAX()
 				}
 			}
 		}
+		shopBasketCheck_Sum();
+	}
+
+	if($action=='shopAddToBasketServices')
+	{
+
+		shopBasketCheck_Table();
+		shopBasketCheck_Items();
+		$itemid= intval($_GET['itemid']);
+		
+		$row= $nc_core->db->get_results("SELECT `name`,price,description FROM Message180 WHERE Message_ID={$itemid} AND Checked=1 LIMIT 1",ARRAY_A);
+		if(is_array($row) && count($row)) $row= $row[0]; else exit();
+
+		$params['description']= $row['description'];
+
+		$price= str_replace(',', '.', $row['price']);
+		$price= preg_replace("/[^0-9\.]/", '', $price);
+
+		$uniq= $row['name'];
+
+		$code= getShopOrderStatus_1();
+		$uniq= md5($uniq);
+
+		$row['name']= $nc_core->db->escape($row['name']);
+		$params= serialize($params);
+		$params= $nc_core->db->escape($params);
+		
+		$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND itemid={$itemid} AND uniq='{$uniq}' LIMIT 1",ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			$nc_core->db->query("UPDATE BN_Shop_Basket SET count=count+1 WHERE id={$rr[0][id]} LIMIT 1");
+		}else{
+			$nc_core->db->query("INSERT INTO BN_Shop_Basket SET code='{$code}', `type`='simple', itemid={$itemid}, title='{$row[name]}', count=1,
+				price='{$price}', params='{$params}', dt=".time().", uniq='{$uniq}'");
+		}
+
 		shopBasketCheck_Sum();
 	}
 
@@ -926,7 +974,7 @@ function _AJAX()
 								}
 								$img= explode(':', $row['clrs_img']);
 								print '<div class="ct_kb_itm" data-kbid="'.$row['Message_ID'].'" data-img2="'.ImgCrop72('/netcat_files/'.$img[3],150,0,false,false,null,null,null,100).'"
-									data-img3="'.ImgCrop72('/netcat_files/'.$img[3],666,666,false,false,null,null,null,100).'">
+									data-img3="'.ImgCrop72('/netcat_files/'.$img[3],666,666,false,false,null,null,null,100).'" data-cnm="'.$row['clrs_name'].'">
 									<div class="ct_kbi_img"><img src="'.ImgCrop72('/netcat_files/'.$img[3],150,150,false,true,null,null,null,100).'" /></div>';
 								print '</div>';
 							}
@@ -953,11 +1001,11 @@ function _AJAX()
 
 	if($action=='catalogSetOption')
 	{
-		$catid= intval($_POST['catid']);
-		$editions_large= ($_POST['editions_large']=='y'?true:false);
-		$options= $_POST['option'];
-		$values= $_POST['values'];
-		$options= getOptions($catid, $options); //print'<pre>'.print_r($options,1).'</pre>';
+		$catid         = intval($_POST['catid']);
+		$editions_large= ($_POST['editions_large'] == 'y'?true:false);
+		$options       = $_POST['option'];
+		$values        = $_POST['values'];
+		$options       = getOptions($catid, $options); //print'<pre>'.print_r($options,1).'</pre>';
 		print _CATALOG($catid, true, $options[0], $editions_large, $values);
 	}
 
@@ -1160,114 +1208,203 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 				$pp .= '<div class="ct_c">';
 			}
 
-			$pp .= '<div class="ct_loading">&nbsp;</div>
-						<table class="ct_t">';
-
-			$options_value_key= false;
-			$editions_large_flag= false;
-			$editionslist= array();
-			$items= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog WHERE parent={$row[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
-			if(is_array($items) && count($items))
+			if($row['id']==228)
 			{
-				foreach($items AS $itemkey => $item)
+				$pp .= '<div class="stickers">
+					<div class="sck_col sck_col1">
+						<div class="sck_opt">
+							<div class="sck_o_lab">Высечка</div>
+							<div class="sck_o_inp"><select name="">
+								<option value="y">С высечкой по контуру наклеек</option>
+								<option value="n">Без высечки</option>
+							</select></div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Макет наклейки</div>
+							<div class="sck_o_inp"><select name="">
+								<option value="y">Все наклейки одинаковые</option>
+								<option value="n">Разные наклейки</option>
+							</select></div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Форма высечки</div>
+							<div class="sck_o_inp"><select name="">
+								<option value="krug">Круг</option>
+								<option value="kvadrat">Квадрат</option>
+								<option value="drugaya">Другая</option>
+							</select></div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Размер одной наклейки</div>
+							<div class="sck_o_inp"><input class="mini" type="text" name="" /> x <input class="mini" type="text" name="" />&nbsp;мм</div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Количество наклеек</div>
+							<div class="sck_o_inp"><input type="text" name="" />&nbsp;шт.</div>
+							<br />
+						</div>
+					</div>
+
+					<div class="sck_col sck_col2">
+						<div class="sck_opt">
+							<div class="sck_o_lab">Материал</div>
+							<div class="sck_o_inp"><select name="">
+								<option value="matov">Матовая пленка</option>
+								<option value="glyan">Глянцевая пленка</option>
+								<option value="prozr">Прозрачная пленка</option>
+							</select></div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Нарезка листов</div>
+							<div class="sck_o_inp"><select name="">
+								<option value="a2">A2</option>
+								<option value="a3">A3</option>
+								<option value="a4">A4</option>
+								<option value="a5">A5</option>
+								<option value="sz">В размер наклейки</option>
+							</select></div>
+							<br />
+						</div>
+
+						<div class="sck_opt">
+							<div class="sck_o_lab">Количество листов</div>
+							<div class="sck_o_inp"><input type="text" name="" />&nbsp;шт.</div>
+							<br />
+						</div>
+
+						<div class="sck_opt"><label>
+							<div class="sck_o_lab"><input type="checkbox" name="" value="y"></div>
+							<div class="sck_o_inp"><span class="dashed">монтажная пленка</span></div>
+							<br />
+						</label></div>
+					</div>
+
+					<div class="sck_col sck_col3">
+						<div class="sckc_tit">Стоимость</div>
+					</div>
+					<br />
+				</div>';
+
+			}else{
+				$pp .= '<div class="ct_loading">&nbsp;</div>
+							<table class="ct_t">';
+
+				$options_value_key= false;
+				$editions_large_flag= false;
+				$editionslist= array();
+				$items= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog WHERE parent={$row[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
+				if(is_array($items) && count($items))
 				{
-					$editions= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Edition WHERE idi={$item[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
-
-
-					if( ! $itemkey)
+					foreach($items AS $itemkey => $item)
 					{
-						if(count($editions)>10) $editions_large_flag= true;
+						$editions= $nc_core->db->get_results("SELECT * FROM BN_PG_Catalog_Edition WHERE idi={$item[id]} AND enabled='y' ORDER BY ii", ARRAY_A);
 
-						$pp .= '<tr class="ctt_tit"><td><span>'.$subinfo['nameCatalogTableCol'].'</span></td>';
+
+						if( ! $itemkey)
+						{
+							if(count($editions)>10) $editions_large_flag= true;
+
+							$pp .= '<tr class="ctt_tit"><td><span>'.$subinfo['nameCatalogTableCol'].'</span></td>';
+							foreach($editions AS $editionkey=>$edition)
+							{
+								if($editions_large_flag)
+								{
+									if( ! $editions_large && $editionkey>=7){ $editionslist[]= false; break; }
+									elseif($editions_large && $editionkey<7){ $editionslist[]= false; continue; }
+								}
+
+								unset($edition['id']);
+								unset($edition['idi']);
+								unset($edition['price']);
+								$edition['ed']= (strpos($edition['edition'],'м2')!==false?'м<span class="vkvadrate">2</span>':'шт.');
+								$edition['range']= ($edition['range']=='y'?true:false);
+								$edition['edition']= str_replace(' шт.', '', $edition['edition']);
+								$edition['edition']= str_replace(' м2', '', $edition['edition']);
+
+								if( ! $edition['range'])
+								{
+									$edition['edition_val']= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
+								}else{
+									if(strpos($edition['edition'], '-')!==false)
+									{
+										$tmp= explode('-', $edition['edition']);
+										$ot= intval(preg_replace("/[^0-9]/", '', $tmp[0]));
+										$do= intval(preg_replace("/[^0-9]/", '', $tmp[1]));
+									}else{
+										if( ! $editionkey)
+										{
+											$ot= 0;
+											$do= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
+										}elseif($editionkey=count($editions)-1){
+											$ot= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
+											$do= 99999999;
+										}
+									}
+									$edition['edition_ot']= $ot;
+									$edition['edition_do']= $do;
+								}
+
+								$editionslist[]= $edition;
+
+								$pp .= '<td class="ctt_tit_td">'.$edition['edition'].' <span>'.$edition['ed'].'</span></td>';
+
+								if($options_value_key===false && $options_value && $edition['edition_ot']<=$options_value && $options_value<=$edition['edition_do'])
+								{
+									$options_value_key= $editionkey;
+									if($edition['range'])
+									{
+										$pp .= '<td class="ctt_tit_td cttt_td_myedition">'.$options_value.' <span>'.$edition['ed'].'</span></td>';
+									}
+								}
+							}
+							$pp .= '</tr>';
+						}
+
+
+						$item['name']= str_replace('м2','м<span class="vkvadrate">2</span>',$item['name']);
+						$pp .= '<tr><td class="ctt_name">'.($item['description']?'<span class="tiptop" title="'.$item['description'].'">'.$item['name'].'</span>':$item['name']).'</td>';
+
+						$options_valueflag= false;
 						foreach($editions AS $editionkey=>$edition)
 						{
 							if($editions_large_flag)
 							{
-								if( ! $editions_large && $editionkey>=7){ $editionslist[]= false; break; }
-								elseif($editions_large && $editionkey<7){ $editionslist[]= false; continue; }
+								if( ! $editions_large && $editionkey>=7) break;
+								elseif($editions_large && $editionkey<7) continue;
 							}
 
-							unset($edition['id']);
-							unset($edition['idi']);
-							unset($edition['price']);
-							$edition['ed']= (strpos($edition['edition'],'м2')!==false?'м<span class="vkvadrate">2</span>':'шт.');
-							$edition['range']= ($edition['range']=='y'?true:false);
-							$edition['edition']= str_replace(' шт.', '', $edition['edition']);
-							$edition['edition']= str_replace(' м2', '', $edition['edition']);
+							$editioninfo= $editionslist[$editionkey];
 
-							if( ! $edition['range'])
+							$edition_markup= $markup;
+							if( ! $editioninfo['range']) $edition_markup *= $editioninfo['edition_val'];
+							$price= $edition['price'];
+							if($edition_markup) $price += $edition_markup;
+							$pp .= '<td class="ctt_itm_td '.($editioninfo['range']?'ctt_itm_disabled':'ctt_itm').'" '.($editioninfo['range']?'':'data-edition="'.$edition['id'].'"').'><span class="price">'.Price($price,($editioninfo['range']?2:0)).'</span> <span class="ed"><span class="ruble">руб</span>'.($editioninfo['range']?' /'.$editioninfo['ed']:'').'</span><span class="check">'.icon('check').'</span></td>';
+
+							if($options_value_key===$editionkey)
 							{
-								$edition['edition_val']= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
-							}else{
-								if(strpos($edition['edition'], '-')!==false)
+								if($editioninfo['range'])
 								{
-									$tmp= explode('-', $edition['edition']);
-									$ot= intval(preg_replace("/[^0-9]/", '', $tmp[0]));
-									$do= intval(preg_replace("/[^0-9]/", '', $tmp[1]));
-								}else{
-									if( ! $editionkey)
-									{
-										$ot= 0;
-										$do= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
-									}elseif($editionkey=count($editions)-1){
-										$ot= intval(preg_replace("/[^0-9]/", '', $edition['edition']));
-										$do= 99999999;
-									}
-								}
-								$edition['edition_ot']= $ot;
-								$edition['edition_do']= $do;
-							}
-
-							$editionslist[]= $edition;
-
-							$pp .= '<td class="ctt_tit_td">'.$edition['edition'].' <span>'.$edition['ed'].'</span></td>';
-
-							if($options_value_key===false && $options_value && $edition['edition_ot']<=$options_value && $options_value<=$edition['edition_do'])
-							{
-								$options_value_key= $editionkey;
-								if($edition['range'])
-								{
-									$pp .= '<td class="ctt_tit_td cttt_td_myedition">'.$options_value.' <span>'.$edition['ed'].'</span></td>';
+									$options_valueprice= $price * $options_value;
+									$pp .= '<td class="ctt_itm_td ctt_itm ctt_itm_myedition '.($itemkey==count($items)-1?'ctt_itm_myedition_last':'').'" data-edition="'.$edition['id'].'"><span class="price">'.Price($options_valueprice).'</span> <span class="ed"><span class="ruble">руб</span></span><span class="check">'.icon('check').'</span></td>';
 								}
 							}
 						}
 						$pp .= '</tr>';
 					}
-
-
-					$item['name']= str_replace('м2','м<span class="vkvadrate">2</span>',$item['name']);
-					$pp .= '<tr><td class="ctt_name">'.($item['description']?'<span class="tiptop" title="'.$item['description'].'">'.$item['name'].'</span>':$item['name']).'</td>';
-
-					$options_valueflag= false;
-					foreach($editions AS $editionkey=>$edition)
-					{
-						if($editions_large_flag)
-						{
-							if( ! $editions_large && $editionkey>=7) break;
-							elseif($editions_large && $editionkey<7) continue;
-						}
-
-						$editioninfo= $editionslist[$editionkey];
-
-						$edition_markup= $markup;
-						if( ! $editioninfo['range']) $edition_markup *= $editioninfo['edition_val'];
-						$price= $edition['price'];
-						if($edition_markup) $price += $edition_markup;
-						$pp .= '<td class="ctt_itm_td '.($editioninfo['range']?'ctt_itm_disabled':'ctt_itm').'" '.($editioninfo['range']?'':'data-edition="'.$edition['id'].'"').'><span class="price">'.Price($price,($editioninfo['range']?2:0)).'</span> <span class="ed"><span class="ruble">руб</span>'.($editioninfo['range']?' /'.$editioninfo['ed']:'').'</span><span class="check">'.icon('check').'</span></td>';
-
-						if($options_value_key===$editionkey)
-						{
-							if($editioninfo['range'])
-							{
-								$options_valueprice= $price * $options_value;
-								$pp .= '<td class="ctt_itm_td ctt_itm ctt_itm_myedition '.($itemkey==count($items)-1?'ctt_itm_myedition_last':'').'" data-edition="'.$edition['id'].'"><span class="price">'.Price($options_valueprice).'</span> <span class="ed"><span class="ruble">руб</span></span><span class="check">'.icon('check').'</span></td>';
-							}
-						}
-					}
-					$pp .= '</tr>';
 				}
+				$pp .= '</table>';
 			}
-			$pp .= '</table>';
 
 			if($onlytable) return $pp;
 
@@ -1359,11 +1496,13 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 				if($row['id']==234 || $row['id']==235)
 				{
 					$pp .= '<div class="ct_kbloki_selected">
-						<div class="ct_kbs_tit font2">Выберите дизайн календарного блока</div>
-						<div class="ct_kbs_sel"><img src="assets/images/krivayastrelka2.svg" /></div>
+						<div class="ct_kbs_tit ct_kbs_tit1 font2"><span>'.icon('warning').'&nbsp;</span> Выберите дизайн календарного блока</div>
+						<div class="ct_kbs_tit ct_kbs_tit2 font2">Выбранный дизайн календарного блока</div>
+						<div class="ct_kbs_sel"><img src="assets/images/krivayastrelka2.svg" /><br /></div>
 					</div>';
-				}
 
+					$pp .= '<input class="kalblokid" type="hidden" name="kbid" value="" />';
+				}
 
 
 				$pp .= '<input type="hidden" name="catid" value="'.$row['id'].'" />';
@@ -1403,6 +1542,7 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 	return $pp;
 }
+
 function getMainCategoryColor($mcid=0, $type=0)
 {
 	$colors= array(
@@ -1527,33 +1667,48 @@ function shopBasketCheck_Items()
 		foreach($rr AS $row)
 		{
 			$flag= true;
-			$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog WHERE id={$row[itemid]} AND enabled='y' LIMIT 1", ARRAY_A);
-			if( ! $rr2) $flag= false;
-			if($flag)
+			if($row['type']=='complex')
 			{
-				$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog_Edition WHERE idi={$row[itemid]} AND id='{$row[edid]}' AND enabled='y' LIMIT 1", ARRAY_A);
+				$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog WHERE id={$row[itemid]} AND enabled='y' LIMIT 1", ARRAY_A);
 				if( ! $rr2) $flag= false;
-			}
-			if($flag)
-			{
-				$params= unserialize($row['params']);
-				if(is_array($params['options']) && count($params['options']))
+				if($flag)
 				{
-					$options= getOptions($row['catid'],false,$params['options']);
-					if( ! $options) $flag= false;
-					else{
-						$price= getShopBasketItemPrice($row['catid'], $row['itemid'], $row['edid'], $options[0], $row['ed']);
-						if($row['params']!=$price)
-						{
-							$params['options']= $options[1];
-							$params= serialize($params);
-							$params= $nc_core->db->escape($params);
-							$nc_core->db->query("UPDATE BN_Shop_Basket SET price={$price}, params='{$params}' WHERE id={$row[id]} LIMIT 1");
-							$flag2= true;
+					$rr2= $nc_core->db->get_results("SELECT id FROM BN_PG_Catalog_Edition WHERE idi={$row[itemid]} AND id='{$row[edid]}' AND enabled='y' LIMIT 1", ARRAY_A);
+					if( ! $rr2) $flag= false;
+				}
+				if($flag)
+				{
+					$params= unserialize($row['params']);
+					if(is_array($params['options']) && count($params['options']))
+					{
+						$options= getOptions($row['catid'],false,$params['options']);
+						if( ! $options) $flag= false;
+						else{
+							$price= getShopBasketItemPrice($row['catid'], $row['itemid'], $row['edid'], $options[0], $row['ed']);
+							if($row['params']!=$price)
+							{
+								$params['options']= $options[1];
+								$params= serialize($params);
+								$params= $nc_core->db->escape($params);
+								$nc_core->db->query("UPDATE BN_Shop_Basket SET price='{$price}', params='{$params}' WHERE id={$row[id]} LIMIT 1");
+								$flag2= true;
+							}
 						}
 					}
 				}
 			}
+
+			if($row['type']=='simple')
+			{
+				$row2= $nc_core->db->get_results("SELECT price FROM Message180 WHERE Message_ID={$row[itemid]} AND Checked=1 LIMIT 1",ARRAY_A);
+				if(is_array($row2) && count($row2))
+				{
+					$price= str_replace(',', '.', $row2[0]['price']);
+					$price= preg_replace("/[^0-9\.]/", '', $price);
+					$nc_core->db->query("UPDATE BN_Shop_Basket SET price='{$price}' WHERE id={$row[id]} LIMIT 1");
+				}else $flag= false;
+			}
+
 			if( ! $flag)
 			{
 				$nc_core->db->query("UPDATE BN_Shop_Basket SET enabled='n' WHERE id={$row[id]} LIMIT 1");
@@ -2063,7 +2218,7 @@ function shopDeliveryCalculator()
 
 	$rr= $nc_core->db->get_results("SELECT cc.dimensions, cc.weight, bb.`count`, bb.ed, bb.params FROM BN_Shop_Basket AS bb
 		INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
-		WHERE bb.code='{$order['code']}' AND bb.enabled='y'",ARRAY_A);
+		WHERE bb.code='{$order['code']}' AND bb.type!='simple' AND bb.enabled='y'",ARRAY_A);
 	if(is_array($rr) && count($rr))
 	{
 		foreach($rr AS $row)
@@ -2096,25 +2251,25 @@ function shopDeliveryCalculator()
    //  			'weight2'=>$weight,
 			// ));
 
-			$ed= intval(preg_replace("/[^0-9]/", '', $row['ed']));
-			$dimensions= explode('x', $row['dimensions']);
-			$dimensions0= ceil(intval($dimensions[0])/10);
-			$dimensions1= ceil(intval($dimensions[1])/10);
-			$dimensions2= intval($dimensions[2]) *($ed/100);
-			$dimensions2= ceil($dimensions2/10);
-			$volume= ($dimensions[0]/1000)*($dimensions[1]/1000);
-			$weight= ceil($volume*floatval($weight)*$ed);
-			$weight= floatval($weight/1000);
+			$ed          = intval(preg_replace("/[^0-9]/", '', $row['ed']));
+			$dimensions  = explode('x', $row['dimensions']);
+			$dimensions0 = ceil(intval($dimensions[0])/10);
+			$dimensions1 = ceil(intval($dimensions[1])/10);
+			$dimensions2 = intval($dimensions[2]) *($ed/100);
+			$dimensions2 = ceil($dimensions2/10);
+			$volume      = ($dimensions[0]/1000)*($dimensions[1]/1000);
+			$weight      = ceil($volume*floatval($weight)*$ed);
+			$weight      = floatval($weight/1000);
 
    //  		print_r(array(
-   //  			'ed1'=>$ed,
-   //  			'ed2'=>$ed/100,
-   //  			'dimensions'=>$row['dimensions'],
-   //  			'dimensions2'=>$dimensions2,
-   //  			'volume'=>$volume,
-   //  			'weight1'=>floatval($weight),
-   //  			'weight2'=>$weight,
-   //  			'weight3'=>$weight3,
+   //  			'ed1'         => $ed,
+   //  			'ed2'         => $ed/100,
+   //  			'dimensions'  => $row['dimensions'],
+   //  			'dimensions2' => $dimensions2,
+   //  			'volume'      => $volume,
+   //  			'weight1'     => floatval($weight),
+   //  			'weight2'     => $weight,
+   //  			'weight3'     => $weight3,
 			// ));
 
 			for($kk=1; $kk<=$row['count']; $kk++) $calc->addGoodsItemBySize($weight, $dimensions0,$dimensions1,$dimensions2);
@@ -2143,12 +2298,12 @@ function disk($url,$request='GET',$uniqurl=false,$file=false)
 		'Authorization: OAuth AQAAAAAZ8yArAADLW-bIisEEYks3vjbOIDyMih0',
 	);
 	$curl_setopt_array= array(
-		CURLOPT_CUSTOMREQUEST                => $request,
-		CURLOPT_URL                          => ($uniqurl?$url:'https://cloud-api.yandex.net/v1/disk/'.$url),
-		CURLOPT_HTTPHEADER                   => $curl_httpheader,
-		CURLOPT_FRESH_CONNECT                => true,
-		CURLOPT_RETURNTRANSFER               => true,
-		CURLOPT_FOLLOWLOCATION               => true,
+		CURLOPT_CUSTOMREQUEST  => $request,
+		CURLOPT_URL            => ($uniqurl?$url:'https://cloud-api.yandex.net/v1/disk/'.$url),
+		CURLOPT_HTTPHEADER     => $curl_httpheader,
+		CURLOPT_FRESH_CONNECT  => true,
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_FOLLOWLOCATION => true,
 	);
 	if($request=='PUT' && $file)
 	{
@@ -2332,11 +2487,11 @@ function setCity($city, $redirect=false, $confirmed=false)
 		{
 			$row= $row[0];
 			// logs(session_id());
-			$_SESSION['mycity']['city']= $row['City'];
-			$_SESSION['mycity']['city_code']= $row['CityCode'];
-			$_SESSION['mycity']['city_alias']= $row['CityAlias'];
-			$_SESSION['mycity']['obl']= $row['Obl'];
-			$_SESSION['mycity']['fo']= $row['FO'];
+			$_SESSION['mycity']['city']       = $row['City'];
+			$_SESSION['mycity']['city_code']  = $row['CityCode'];
+			$_SESSION['mycity']['city_alias'] = $row['CityAlias'];
+			$_SESSION['mycity']['obl']        = $row['Obl'];
+			$_SESSION['mycity']['fo']         = $row['FO'];
 
 			$ip= $nc_core->db->escape($_SERVER['REMOTE_ADDR']);
 			$rr2= $nc_core->db->get_results("SELECT * FROM BN_City_User WHERE ip='{$ip}' LIMIT 1", ARRAY_A);
@@ -2599,24 +2754,24 @@ function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $w
 	// 15.09.2016
 	// ImgCrop
 	/*
-		$img= assets/images/img.jpg
-		$dopimg= assets/images/dopimg.jpg
-		$toimg= assets/images/toimg.jpg
+		$img    = assets/images/img.jpg
+		$dopimg = assets/images/dopimg.jpg
+		$toimg  = assets/images/toimg.jpg
 
-		$w= (int)156
-		$h= (int)122
-		$backgr= 0/1
-		$fill= 0/1
-		$x= center/left/right
-		$y= center/top/bottom
-		$bgcolor= R,G,B,A / x:y / fill:a;b;c;d|b;c;d
-		$wm= 0/1
-		$filter= a;b;c;d|b;c;d
-		$png= 0/1
-		$ellipse= max / (int)56
-		$degstep= (int)5
-		$dopimg_xy= x:y
-		$quality= (int)80
+		$w         = (int)156
+		$h         = (int)122
+		$backgr    = 0/1
+		$fill      = 0/1
+		$x         = center/left/right
+		$y         = center/top/bottom
+		$bgcolor   = R,G,B,A / x:y / fill:a;b;c;d|b;c;d
+		$wm        = 0/1
+		$filter    = a;b;c;d|b;c;d
+		$png       = 0/1
+		$ellipse   = max / (int)56
+		$degstep   = (int)5
+		$dopimg_xy = x:y
+		$quality   = (int)80
 		$fullpath
 		$r= 0/1
 	*/
