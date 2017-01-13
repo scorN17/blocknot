@@ -1,5 +1,7 @@
 <?php
 
+// 08.01.2017
+
 
 /*
 	1   - Неоформленный заказ
@@ -15,6 +17,7 @@
 	200 - Отмена заказа заказчиком
 	210 - Отмена заказа администратором
 */
+
 
 
 
@@ -38,6 +41,16 @@ function _AJAX()
 
 	$action= $_GET['a'];
 
+
+
+	if($action=='catalogfilter_items')
+	{
+		print OBOI_Catalog();
+	}
+	if($action=='catalog_itempage')
+	{
+		print OBOI_Catalog_Item();
+	}
 
 
 
@@ -307,6 +320,79 @@ function _AJAX()
 					$diskuploadhref= $diskresponse_arr['href'];
 					$diskresponse= disk($diskuploadhref, 'PUT', true, $nc_core->DOCUMENT_ROOT.$tmpfolder.$fn);
 				}
+			}
+		}
+	}
+
+
+
+	
+	if($action=='scalc_userfile')
+	{
+		shopBasketCheck_Table();
+		$code= getShopOrderStatus_1();
+
+		$fs= intval($_GET['fs']);
+		$cc= intval($_GET['cc']);
+		$kk= intval($_GET['kk']);
+		$chunk= $_POST['chunkblob'];
+		if(strpos($chunk,',') !== false) $chunk= substr($chunk,strpos($chunk,',')+1);
+		$chunk= base64_decode($chunk);
+		$tmpfolder= '/assets/files/oboiusersfiles/'.$code.'/';
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder)) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder, 0777, true);
+		
+		$fn= trim(urldecode($_GET['fn']));
+
+		$ext= substr($fn, strpos($fn,'.'));
+		if(stripos('/.jpg/.jpeg/.png/', '/'.$ext.'/')===false)
+		{
+			print '{"result":"err","text":"Неверный формат изображения!"}';
+			exit();
+		}
+		if($fs>1024*1024*15)
+		{
+			print '{"result":"err","text":"Размер изображения не должен превышать 15 Мб"}';
+			exit();
+		}
+
+		$fn= generAlias($fn);
+		$fn= $fs.'_'.$fn;
+		
+		clearstatcache();
+		
+		$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$kk, 'w');
+		fwrite($fo, $chunk);
+		fclose($fo);
+		
+		$chunkssizesum= 0;
+		for($ww=0; $ww<$cc; $ww++)
+		{
+			$chunkssizesum += filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+		}
+		
+		if($chunkssizesum<$fs)
+		{
+			print '{"result":"ok","response":"nextchunk"}';
+		}else{
+			print '{"result":"ok","response":"lastchunk","file":"'.substr($tmpfolder,1).$fn.'"}';
+			
+			$fo= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn, 'w');
+			if($fo)
+			{
+				flock($fo, LOCK_EX);
+				for($ww=0; $ww<$cc; $ww++)
+				{
+					$fo2= fopen($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww, 'r');
+					$contents= fread($fo2, filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww));
+					fwrite($fo, $contents);
+					fclose($fo2);
+					unlink($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn.'_'.$ww);
+				}
+				fclose($fo);
+			}
+			if(filesize($nc_core->DOCUMENT_ROOT.$tmpfolder.$fn)==$fs)
+			{
+				$_SESSION['oboiusersfiles']= substr($tmpfolder,1).$fn;
 			}
 		}
 	}
@@ -818,11 +904,9 @@ function _AJAX()
 							}elseif($val['w'] && $val['h']){
 								$val['w']= intval($val['w']);
 								$val['h']= intval($val['h']);
-
-								$params['params'][]= 'Размер '.$val['w'].' x '.$val['h'].' мм';
-
-								$val['w'] /= 1000;
-								$val['h'] /= 1000;
+								$params['params'][]= 'Размер '.$val['w'].' x '.$val['h'].' см';
+								$val['w'] /= 100;
+								$val['h'] /= 100;
 								$options_value= round($val['w'] * $val['h']);
 							}
 						}
@@ -842,7 +926,10 @@ function _AJAX()
 
 				$options= getOptions($catid, $options);
 				if( ! $options) exit();
+
 				$markup= $options[0];
+				$markup= changeMarkupBySize($markup, $row['description']);
+
 				$params['options']= $options[1];
 				if(is_array($params['options']) && count($params['options']))
 				{
@@ -885,9 +972,29 @@ function _AJAX()
 		shopBasketCheck_Sum();
 	}
 
+	if($action=='shopAddToBasket')
+	{
+		shopBasketCheck_Table();
+		shopBasketCheck_Items();
+
+		$width            = intval($_GET['width']);
+		$height           = intval($_POST['height']);
+		$typeprint        = ($_POST['typeprint'] == 2?2:1);
+		$itemid           = $_POST['itemid'];
+		$idwallp          = intval($_POST['idwallp']);
+		$designfile       = $_SESSION['oboiusersfiles']; //$_POST['designfile'];
+		$kub_ll           = intval($_POST['kub_ll']);
+		$kub_tt           = intval($_POST['kub_tt']);
+		$kub_ww           = intval($_POST['kub_ww']);
+		$kub_hh           = intval($_POST['kub_hh']);
+
+		if($idwallp='w0000000' && ! file_exists($nc_core->DOCUMENT_ROOT.'/'.$designfile))
+			$error .= '';
+		if( ! $width || ! $height) $error .= '';
+	}
+
 	if($action=='shopAddToBasketServices')
 	{
-
 		shopBasketCheck_Table();
 		shopBasketCheck_Items();
 		$itemid= intval($_GET['itemid']);
@@ -999,6 +1106,199 @@ function _AJAX()
 		}
 	}
 
+
+	if($action=='shopPaymentChange')
+	{
+		$code   = $nc_core->db->escape($_GET['order']);
+		$secret = $nc_core->db->escape($_GET['secret']);
+		$sposob = ($_GET['sposob']=='nalik'?'nalik':'urlico');
+
+		$row= $nc_core->db->get_results("SELECT * FROM BN_Shop_Order WHERE code='{$code}' AND status>=5 AND status<=60 AND payment_dt=0 AND secret='{$secret}' LIMIT 1",ARRAY_A);
+		if(is_array($row) && count($row))
+		{
+			if($sposob!=$row[0]['payment'])
+			{
+				$logs= "\n".date('d.m.Y, H:i')." | Изменен способ оплаты. ".($sposob=='nalik'?"При получении.":"Юр.лицо.");
+				$logsqq= $nc_core->db->escape($logs);
+				$nc_core->db->query("UPDATE BN_Shop_Order SET payment='{$sposob}', logs=CONCAT(logs,'{$logsqq}') WHERE code='{$code}' AND secret='{$secret}' LIMIT 1");
+
+				$subject= 'Изменен способ оплаты! Заказ '.substr($code,1);
+				$body= '<p>Заказ '.substr($code,1).' &mdash; изменен способ оплаты!</p>';
+				$body .= '<p>'.($sposob=='nalik'?"Оплата при получении.":"Оплата счета через юр.лицо.").'</p>';
+
+				$nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', `to`='".$nc_core->db->escape($row[0]['email'])."',
+					subject='{$subject}', body='{$body}', dt=".time());
+
+				$logs= $row[0]['logs'].$logs;
+				$logs= str_replace("\n", '<br />', $logs);
+				$body2= '<p>История заказа:<br />'.$logs.'</p>';
+
+				if($sposob=='urlico' && is_array($_SESSION['megaform']['files']) && count($_SESSION['megaform']['files']))
+				{
+					foreach($_SESSION['megaform']['files'] AS $file)
+					{
+						$files .= 'assets/tmp/forms/'.$_SESSION['megaform']['code'].'/'.$file[2] ."\n";
+					}
+					$files= $nc_core->db->escape($files);
+				}
+
+				$body .= $body2;
+				$nc_core->db->query("INSERT INTO BN_Queue_Mail SET orderCode='{$code}', `to`='[manager666]', subject='{$subject}', body='{$body}', files='{$files}', dt=".time());
+			}
+		}
+	}
+
+
+	if($action=='catalogSetStickers')
+	{
+		$listi= array(
+			'a2' => 594*420,
+			'a3' => 420*297,
+			'a4' => 297*210,
+			'a5' => 210*148,
+		);
+		$prices= array(
+			array(0,  1,        1200),
+			array(1,  5,        1000),
+			array(5,  10,       900),
+			array(10, 30,       700),
+			array(30, 50,       680),
+			array(50, 99999999, 650),
+		);
+
+
+		$visechka= ($_POST['visechka'] == 'n'?'n':'y');
+		$maket   = ($_POST['maket'] == 'n'?'n':'y');
+		$forma   = ($_POST['forma'] == 'krug'?'krug':(($_POST['forma']=='pryamoug'?'pryamoug':'slozhn')));
+		$ww      = intval($_POST['ww']);
+		$hh      = intval($_POST['hh']);
+		$ccn     = intval($_POST['ccn']);
+		$material= ($_POST['material'] == 'matov'?'matov':(($_POST['material']=='prozr'?'prozr':'glyan')));
+		$narezka = $_POST['narezka'];
+		$ccl     = intval($_POST['ccl']);
+		$plenka  = ($_POST['plenka'] == 'y'?'y':'n');
+
+		if($narezka!='a2' && $narezka!='a3' && $narezka!='a4' && $narezka!='a5' && $narezka!='sz') $narezka= 'a2';
+
+		if($maket=='y')
+		{
+			if($hh>0 && $hh<10) $error .= '<div>'.addslashes(icon('warning')).' Мин.высота 10&nbsp;мм</div>';
+			if($ww>0 && $ww<10) $error .= '<div>'.addslashes(icon('warning')).' Мин.ширина 10&nbsp;мм</div>';
+			if($ww>1600) $error .= '<div>'.addslashes(icon('warning')).' Макс.ширина 1,6&nbsp;метра</div>';
+			if($forma=='krug' && ($ww>1200 || $hh>1200)) $error .= '<div>'.addslashes(icon('warning')).' Макс.диаметр 1,2&nbsp;метра</div>';
+		}
+
+		if($visechka=='n' || $maket=='y')
+		{
+			if( ! $ww || ! $hh) $error .= '<div>'.addslashes(icon('warning')).' Укажите размер наклейки</div>';
+			if(! $ccn) $error .= '<div>'.addslashes(icon('warning')).' Укажите кол-во наклеек</div>';
+			$area= $ww*$hh *1.1 *$ccn;
+		}else{
+			$area= $listi[$narezka] *$ccl;
+		}
+		$price= 0;
+		if( ! $error)
+		{
+			$area /= 1000000;
+			if($area<0.5) $area= 0.5;
+		
+			foreach($prices AS $row) if($row[0]<$area && $area<=$row[1]) $price= $row[2];
+			$price *= $area;
+			if($visechka=='y' && $maket=='y' && $forma=='slozhn') $price*=2;
+			if($plenka=='y') $price*=1.5;
+
+			$price_za= 0;
+			if($maket=='y') $price_za= round($price/$ccn,2);
+		}
+
+		if( ! $error && $_GET['go']=='go')
+		{
+			$prmsname= array(
+				'visechka' => array(
+					'y' => 'С высечкой по контуру наклеек',
+					'n' => 'Без высечки',
+				),
+				'maket' => array(
+					'y' => 'Все наклейки одинаковые',
+					'n' => 'Разные наклейки',
+				),
+				'forma' => array(
+					'krug'     => 'Круг',
+					'pryamoug' => 'Прямоугольник',
+					'slozhn'   => 'Сложная',
+				),
+				'material' => array(
+					'matov' => 'Матовая пленка',
+					'glyan' => 'Глянцевая пленка',
+					'prozr' => 'Прозрачная пленка',
+				),
+				'narezka' => array(
+					'a2' => 'A2 (494x420мм)',
+					'a3' => 'A3 (420x297мм)',
+					'a4' => 'A4 (297x210мм)',
+					'a5' => 'A5 (210x148мм)',
+					'sz' => 'В размер наклейки',
+				),
+			);
+
+			shopBasketCheck_Table();
+			shopBasketCheck_Items();
+
+			$catid= 228;
+			$name= 'Стикеры на пленке';
+
+			$priceqq= str_replace(',', '.', $price);
+			$priceqq= preg_replace("/[^0-9\.]/", '', $priceqq);
+
+			$code= getShopOrderStatus_1();
+			$uniq= $name.$visechka.$maket.$forma.$ww.$hh.$ccn.$material.$narezka.$ccl.$plenka;
+			$uniq= md5($uniq);
+
+			$params['params'][]= $prmsname['visechka'][$visechka];
+			if($visechka=='y')
+			{
+				$params['params'][]= 'Макет: '.$prmsname['maket'][$maket];
+				if($maket=='y')
+				{
+					$params['params'][]= 'Форма высечки: '.$prmsname['forma'][$forma];
+				}else{
+					$params['params'][]= 'Количество листов: '.$ccl.' шт.';
+				}
+				$params['params'][]= 'Нарезка листов: '.$prmsname['narezka'][$narezka];
+			}
+			if($maket!='n')
+			{
+				$params['params'][]= 'Размер одной наклейки: '.$ww.'x'.$hh.'мм';
+				$params['params'][]= 'Количество наклеек: '.$ccn.' шт.';
+			}
+			$params['params'][]= 'Материал: '.$prmsname['material'][$material];
+			if($plenka=='y') $params['params'][]= 'С монтажной пленкой';
+
+			$name= $nc_core->db->escape($name);
+			$params= serialize($params);
+			$params= $nc_core->db->escape($params);
+			
+			$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND catid={$catid} AND uniq='{$uniq}' LIMIT 1",ARRAY_A);
+			if(is_array($rr) && count($rr))
+			{
+				$nc_core->db->query("UPDATE BN_Shop_Basket SET count=count+1 WHERE id={$rr[0][id]} LIMIT 1");
+			}else{
+				$nc_core->db->query("INSERT INTO BN_Shop_Basket SET code='{$code}', `type`='simple', catid={$catid}, title='{$name}', count=1,
+					price='{$priceqq}', params='{$params}', dt=".time().", uniq='{$uniq}'");
+			}
+			shopBasketCheck_Sum();
+		}
+
+		if($error)
+		{
+			print '{"result":"err","answer":"'.$error.'"}';
+			exit();
+		}else{
+			print '{"result":"oke","pr1":"'.$price_za.'","pr2":"'.Price($price).'"}';
+			exit();
+		}
+	}
+
 	if($action=='catalogSetOption')
 	{
 		$catid         = intval($_POST['catid']);
@@ -1057,7 +1357,7 @@ function paymentForm()
 				<input type="hidden" name="orderNumber" value="'.$row['code'].'" />
 				<input type="hidden" name="cps_email" value="'.$row['email'].'" />
 				<input type="hidden" name="cps_phone" value="'.substr($row['phone'],1).'" />
-				<button type="submit">Оплатить заказ</button>
+				<button class="font2" type="submit">Оплатить заказ</button>
 			</form></div>
 
 			<div class="icons"><div>
@@ -1176,8 +1476,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 					}elseif($val['w'] && $val['h']){
 						$val['w']= intval($val['w']);
 						$val['h']= intval($val['h']);
-						$val['w'] /= 1000;
-						$val['h'] /= 1000;
+						$val['w'] /= 100;
+						$val['h'] /= 100;
 						$options_value= round($val['w'] * $val['h']);
 					}
 				}
@@ -1210,53 +1510,53 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 			if($row['id']==228)
 			{
-				$pp .= '<div class="stickers">
+				$pp .= '<div class="stickers"><form>
 					<div class="sck_col sck_col1">
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_visechka">
 							<div class="sck_o_lab">Высечка</div>
-							<div class="sck_o_inp"><select name="">
+							<div class="sck_o_inp"><select name="visechka">
 								<option value="y">С высечкой по контуру наклеек</option>
 								<option value="n">Без высечки</option>
 							</select></div>
 							<br />
 						</div>
 
-						<div class="sck_opt">
-							<div class="sck_o_lab">Макет наклейки</div>
-							<div class="sck_o_inp"><select name="">
+						<div class="sck_opt sck_opt_maket">
+							<div class="sck_o_lab">'.icon('warning').'&nbsp;<span class="as1 dashed">Макет&nbsp;наклейки</span></div>
+							<div class="sck_o_inp"><select name="maket">
 								<option value="y">Все наклейки одинаковые</option>
 								<option value="n">Разные наклейки</option>
 							</select></div>
 							<br />
 						</div>
 
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_forma">
 							<div class="sck_o_lab">Форма высечки</div>
-							<div class="sck_o_inp"><select name="">
+							<div class="sck_o_inp"><select name="forma">
 								<option value="krug">Круг</option>
-								<option value="kvadrat">Квадрат</option>
-								<option value="drugaya">Другая</option>
+								<option value="pryamoug">Прямоугольник</option>
+								<option value="slozhn">Сложная</option>
 							</select></div>
 							<br />
 						</div>
 
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_wwhh">
 							<div class="sck_o_lab">Размер одной наклейки</div>
-							<div class="sck_o_inp"><input class="mini" type="text" name="" /> x <input class="mini" type="text" name="" />&nbsp;мм</div>
+							<div class="sck_o_inp"><input class="mini" type="text" name="ww" /> x <input class="mini" type="text" name="hh" />&nbsp;мм</div>
 							<br />
 						</div>
 
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_ccn">
 							<div class="sck_o_lab">Количество наклеек</div>
-							<div class="sck_o_inp"><input type="text" name="" />&nbsp;шт.</div>
+							<div class="sck_o_inp"><input type="text" name="ccn" />&nbsp;шт.</div>
 							<br />
 						</div>
 					</div>
 
 					<div class="sck_col sck_col2">
 						<div class="sck_opt">
-							<div class="sck_o_lab">Материал</div>
-							<div class="sck_o_inp"><select name="">
+							<div class="sck_o_lab"><span class="dashed tiptop" title="Пленка европейская, 100 мкр.">Материал</span></div>
+							<div class="sck_o_inp"><select name="material">
 								<option value="matov">Матовая пленка</option>
 								<option value="glyan">Глянцевая пленка</option>
 								<option value="prozr">Прозрачная пленка</option>
@@ -1264,36 +1564,42 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 							<br />
 						</div>
 
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_narezka">
 							<div class="sck_o_lab">Нарезка листов</div>
-							<div class="sck_o_inp"><select name="">
-								<option value="a2">A2</option>
-								<option value="a3">A3</option>
-								<option value="a4">A4</option>
-								<option value="a5">A5</option>
+							<div class="sck_o_inp"><select name="narezka">
+								<option value="a2">A2 (594x420мм)</option>
+								<option value="a3">A3 (420x297мм)</option>
+								<option value="a4">A4 (297x210мм)</option>
+								<option value="a5">A5 (210x148мм)</option>
 								<option value="sz">В размер наклейки</option>
 							</select></div>
 							<br />
 						</div>
 
-						<div class="sck_opt">
+						<div class="sck_opt sck_opt_ccl">
 							<div class="sck_o_lab">Количество листов</div>
-							<div class="sck_o_inp"><input type="text" name="" />&nbsp;шт.</div>
+							<div class="sck_o_inp"><input type="text" name="ccl" />&nbsp;шт.</div>
 							<br />
 						</div>
 
 						<div class="sck_opt"><label>
-							<div class="sck_o_lab"><input type="checkbox" name="" value="y"></div>
-							<div class="sck_o_inp"><span class="dashed">монтажная пленка</span></div>
+							<div class="sck_o_lab"><input type="checkbox" name="plenka" value="y"></div>
+							<div class="sck_o_inp"><span class="dashed tiptop" title="Эта&nbsp;пленка наклеивается поверх&nbsp;наклейки для&nbsp;простого переноса наклейки на&nbsp;поверхность">монтажная пленка</span></div>
 							<br />
 						</label></div>
 					</div>
 
 					<div class="sck_col sck_col3">
-						<div class="sckc_tit">Стоимость</div>
+						<div class="sckc_tit font2">Стоимость</div>
+						<div class="sckc_errs"></div>
+						<div class="sckc_sum sckc_sum1">Наклейка: <span class="price font2">'.Price('47.50',2).'</span> <span class="ruble">руб.</span></div>
+						<div class="sckc_sum sckc_sum2">Тираж: <span class="price font2">'.Price('4750').'</span> <span class="ruble">руб.</span></div>
+						<div class="sckc_tobasket font2">Заказать</div>
+						<div class="sckc_gook font2">'.icon('check').'<br />Добавлено в корзину</div>
+						<div class="ct_loading">&nbsp;</div>
 					</div>
 					<br />
-				</div>';
+				</form></div><!--/.stickers-->';
 
 			}else{
 				$pp .= '<div class="ct_loading">&nbsp;</div>
@@ -1374,6 +1680,9 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 						$item['name']= str_replace('м2','м<span class="vkvadrate">2</span>',$item['name']);
 						$pp .= '<tr><td class="ctt_name">'.($item['description']?'<span class="tiptop" title="'.$item['description'].'">'.$item['name'].'</span>':$item['name']).'</td>';
 
+						$markup_by_size= $markup;
+						$markup_by_size= changeMarkupBySize($markup_by_size, $item['description']);
+
 						$options_valueflag= false;
 						foreach($editions AS $editionkey=>$edition)
 						{
@@ -1385,7 +1694,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 							$editioninfo= $editionslist[$editionkey];
 
-							$edition_markup= $markup;
+							$edition_markup= $markup_by_size;
+
 							if( ! $editioninfo['range']) $edition_markup *= $editioninfo['edition_val'];
 							$price= $edition['price'];
 							if($edition_markup) $price += $edition_markup;
@@ -1499,6 +1809,7 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 						<div class="ct_kbs_tit ct_kbs_tit1 font2"><span>'.icon('warning').'&nbsp;</span> Выберите дизайн календарного блока</div>
 						<div class="ct_kbs_tit ct_kbs_tit2 font2">Выбранный дизайн календарного блока</div>
 						<div class="ct_kbs_sel"><img src="assets/images/krivayastrelka2.svg" /><br /></div>
+						<div class="ct_kbs_open font2">Показать '.icon('arrow_down').'</div>
 					</div>';
 
 					$pp .= '<input class="kalblokid" type="hidden" name="kbid" value="" />';
@@ -1684,8 +1995,10 @@ function shopBasketCheck_Items()
 						$options= getOptions($row['catid'],false,$params['options']);
 						if( ! $options) $flag= false;
 						else{
-							$price= getShopBasketItemPrice($row['catid'], $row['itemid'], $row['edid'], $options[0], $row['ed']);
-							if($row['params']!=$price)
+							$markup= changeMarkupBySize($options[0], $params['description']);
+
+							$price= getShopBasketItemPrice($row['catid'], $row['itemid'], $row['edid'], $markup, $row['ed']);
+							if($row['price']!=$price)
 							{
 								$params['options']= $options[1];
 								$params= serialize($params);
@@ -1698,7 +2011,7 @@ function shopBasketCheck_Items()
 				}
 			}
 
-			if($row['type']=='simple')
+			if($row['type']=='simple' && $row['catid']!=228)
 			{
 				$row2= $nc_core->db->get_results("SELECT price FROM Message180 WHERE Message_ID={$row[itemid]} AND Checked=1 LIMIT 1",ARRAY_A);
 				if(is_array($row2) && count($row2))
@@ -1783,8 +2096,10 @@ function shopBasketPage_Items()
 
 	$sum= intval($order['sum']);
 
+	// $rr= $nc_core->db->get_results("SELECT bb.* FROM BN_Shop_Basket AS bb
+		// INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
+		// WHERE bb.code='{$order[code]}' ORDER BY bb.enabled DESC, bb.itemid, bb.price", ARRAY_A);
 	$rr= $nc_core->db->get_results("SELECT bb.* FROM BN_Shop_Basket AS bb
-		INNER JOIN BN_PG_Catalog AS cc ON cc.id=bb.itemid
 		WHERE bb.code='{$order[code]}' ORDER BY bb.enabled DESC, bb.itemid, bb.price", ARRAY_A);
 	if(is_array($rr) && count($rr))
 	{
@@ -2332,6 +2647,18 @@ function disk($url,$request='GET',$uniqurl=false,$file=false)
 if(isset($_GET['clearcity'])){ print_r($_SESSION['mycity']); unset($_SESSION['mycity']); print '--'; print_r($_SESSION['mycity']); exit(); }
 
 
+function changeMarkupBySize($markup, $text)
+{
+	$A3= 420*297;
+	if(preg_match("/([0-9]{2,5})x([0-9]{2,5})/", $text, $matches)===1)
+	{
+		$size= $matches[1]*$matches[2];
+		if($size!=$A3) $markup /= $A3/$size;
+	}
+	return $markup;
+}
+
+
 function cityList($link=false)
 {
 	global $nc_core;
@@ -2593,12 +2920,595 @@ function myCity_Init()
 }
 
 
-//---------------------------- CITY --------------------------------------------
+//---------------------------- CITY ---------------------------------
 
 
 
 
-// FUNCTIONS -------------------------------------------------------------------
+
+
+
+
+
+
+//---------------------------- OBOI Left Filter ---------------------
+function OBOI_LeftFilter()
+{
+	global $nc_core;
+
+// ---------- Продублировано в несколько функций --------------------
+	$basecategory= '/f/fcatalog';
+
+	if( ! $nc_core->subdivision->scorn_itemid)
+	{
+		$url= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
+		$url= substr($url, strlen($basecategory)+1);
+		$_SESSION['f_catalog_filter_memory']= $url;
+	}else $url= $_SESSION['f_catalog_filter_memory'];
+
+	$x_pos= strpos($url,'/x/');
+	if($x_pos!==false)
+	{
+		$url_category= substr($url, 0, $x_pos).'/';
+		$filterprms= substr($url, $x_pos+3, -1);
+	}else{
+		$url_category= str_replace('/'.$nc_core->subdivision->scorn_itemid.'/', '',$url);
+		$filterprms= false;
+	}
+
+	$category= explode('/', $url_category);
+	$podcategory= $category[1];
+	$category= $category[0];
+// ---------- Продублировано в несколько функций --------------------
+
+	if($filterprms)
+	{
+		$filterprms_arr= explode('/', $filterprms);
+		if(is_array($filterprms_arr) && count($filterprms_arr))
+		{
+			foreach($filterprms_arr AS $row)
+			{
+				$vals= explode('-', $row);
+				$prm= array_shift($vals);
+				$selected2[$prm]= str_replace($prm, '', $row);
+				$selected2[$prm.'_first']= substr($selected2[$prm], 1,1);
+				$selected2[$prm.'_last']= substr($selected2[$prm], -1,1);
+				if($vals)
+				{
+					$tmp_actived= -1;
+					foreach($vals AS $val)
+					{
+						$val= intval($val);
+						$selected[$prm][$val]= true;
+					}
+				}
+			}
+		}
+	}
+
+	$pp .= '<div class="catalog_filter" data-categorypage="'.$basecategory.'/'.$url_category.'"
+		data-catalogpage="'.(strpos($nc_core->url->get_parsed_url('path'), $basecategory)===0?'y':'n').'">';
+
+	$pp .= '<div class="lm_tit font2"><span>Избранное</span></div>';
+
+	$rr= $nc_core->db->get_results("SELECT * FROM Subdivision WHERE Parent_Sub_ID=210 AND Checked=1 ORDER BY LabelColor DESC, Subdivision_Name",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp .= '<div class="lm_tit font2"><span>По теме</span></div><div class="catlft_bl catlft_bord"><div>';
+		foreach($rr AS $row)
+		{
+			$pp .= '<a href="'.$basecategory.'/'.$row['EnglishName'].'/"
+				style="'.($row['LabelColor']=='red'?'font-weight:bold;':'').'"
+				class="catlft_prmval catlft_prmval__s catlft_itm '.($row['EnglishName']==$category?'ctft_param_val_selected':'').' font2"
+				data-prm="s" data-val="'.$row['EnglishName'].'" '.($row['EnglishName']==$category?'data-selected="y"':'').'
+				title="'.$row['Subdivision_Name'].'">'.icon('radio_unchecked').'<span>'.$row['Subdivision_Name'].'</span></a>';
+		}
+		$pp .= '</div></div>';
+	}
+
+	$rr= $nc_core->db->get_results("SELECT * FROM Classificator_CatPomesh WHERE Checked=1 ORDER BY CatPomesh_Priority",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp .= '<div class="lm_tit font2"><span>По типу помещения</span></div><div class="catlft_bl catlft_bord"><div>';
+
+		foreach($rr AS $row)
+		{
+			$link= $basecategory.'/'.($category?$category.'/':'').($podcategory?$podcategory.'/':'');
+			$link .= 'x/';
+			$link .= 'p';
+			//if( strpos( $selected2['p'], '-'.$row[ 'CatPomesh_ID' ] ) === false ) $link .= '-'.$row[ 'CatPomesh_ID' ];
+			if($row['CatPomesh_ID']<$selected2['p_first']) $link .= '-'.$row['CatPomesh_ID'];
+			$link .= $selected2['p'];
+			if($row['CatPomesh_ID']>$selected2['p_last']) $link .= '-'.$row['CatPomesh_ID'];
+			$link .= '/';
+			if($selected2['o']) $link .= 'o'.$selected2['o'].'/';
+
+			$tmp= ($selected['p'][$row['CatPomesh_ID']]?true:false);
+			$pp .= '<a href="'.$link.'" class="catlft_prmval catlft_itm '.($tmp?'ctft_param_val_selected':'').' font2"
+				data-prm="p" data-val="'.$row['CatPomesh_ID'].'" '.($tmp?'data-selected="y"':'').'
+				title="'.$row['CatPomesh_Name'].'">'.icon('checkbox').'<span>'.$row['CatPomesh_Name'].'</span></a>';
+		}
+		$pp .= '</div></div>';
+	}
+
+	$rr= $nc_core->db->get_results("SELECT * FROM Classificator_CatColors WHERE Checked=1 ORDER BY CatColors_Priority",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp .= '<div class="lm_tit font2"><span>По цвету</span></div><div class="catlft_bl catlft_bord"><div class="catlft_clrs">';
+		foreach($rr AS $row)
+		{
+			$tmp= ($selected['c'][$row['CatColors_ID']]?true:false);
+			$pp .= '<div class="catlft_prmval catlft_clr '.($tmp?'ctft_param_val_selected':'').'" style="background-color:#'.$row['Value'].';"
+				data-prm="c" data-val="'.$row['CatColors_ID'].'" '.($tmp?'data-selected="y"':'').'>'.icon('check').'</div>';
+		}
+		$pp .= '<div class="clr">&nbsp;</div></div></div>';
+	}
+
+	$rr= $nc_core->db->get_results("SELECT * FROM Classificator_CatItemOrient WHERE Checked=1 ORDER BY CatItemOrient_Priority",ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$pp .= '<div class="lm_tit font2"><span>Ориентация</span></div><div class="catlft_bl catlft_bord"><div>';
+		foreach($rr AS $row)
+		{
+			$link= $basecategory.'/'.($category?$category.'/':'').($podcategory?$podcategory.'/':'');
+			$link .= 'x/';
+			if($selected2['p']) $link .= 'p'.$selected2['p'].'/';
+			$link .= 'o';
+			if($row['CatItemOrient_ID']<$selected2['o_first']) $link .= '-'.$row['CatItemOrient_ID'];
+			$link .= $selected2['o'];
+			if($row['CatItemOrient_ID']>$selected2['o_last']) $link .= '-'.$row['CatItemOrient_ID'];
+			$link .= '/';
+
+			$tmp= ($selected['o'][$row['CatItemOrient_ID']]?true:false);
+			$pp .= '<a href="'.$link.'" class="catlft_prmval catlft_itm '.($tmp?'ctft_param_val_selected':'').' font2"
+				data-prm="o" data-val="'.$row['CatItemOrient_ID'].'" '.($tmp?'data-selected="y"':'').'
+				title="'.$row['CatItemOrient_Name'].'">'.icon('checkbox').'<span>'.$row['CatItemOrient_Name'].'</span></a>';
+		}
+		$pp .= '</div></div>';
+	}
+
+	$pp .= '</div>';
+
+	return $pp;
+}
+//---------------------------- OBOI Left Filter ---------------------
+
+//---------------------------- OBOI CATALOG -------------------------
+function OBOI_Catalog()
+{
+	global $nc_core;
+
+	$items_on_page= 30;
+
+// ---------- Продублировано в несколько функций --------------------
+	$basecategory= '/f/fcatalog';
+
+	if( ! $nc_core->subdivision->scorn_itemid)
+	{
+		$url= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
+		$url= substr($url, strlen($basecategory)+1);
+		$_SESSION['f_catalog_filter_memory']= $url;
+	}else $url= $_SESSION['f_catalog_filter_memory'];
+
+	$x_pos= strpos($url,'/x/');
+	if($x_pos!==false)
+	{
+		$url_category= substr($url, 0, $x_pos).'/';
+		$filterprms= substr($url, $x_pos+3, -1);
+	}else{
+		$url_category= str_replace('/'.$nc_core->subdivision->scorn_itemid.'/', '',$url);
+		$filterprms= false;
+	}
+
+	$category= explode('/', $url_category);
+	$podcategory= $category[1];
+	$category= $category[0];
+// ---------- Продублировано в несколько функций --------------------
+
+
+	$qqq= "";
+	$filterprms_arr= explode( '/', $filterprms );
+	if( $filterprms_arr )
+	{
+		foreach( $filterprms_arr AS $row )
+		{
+			$vals= explode( "-", $row );
+			$prm= array_shift( $vals );
+			if( $prm == 'pg' )
+			{
+				$pagenum= intval( $vals[ 0 ] );
+				continue;
+			}
+			if( $vals )
+			{
+				$qq= "";
+				foreach( $vals AS $val )
+				{
+					$val= intval( $val );
+					$tmp= 'CatPomesh';
+					if( $prm == 'o' ) $tmp= 'CatOrient';
+					if( $prm == 'c' ) $tmp= 'CatColors';
+					$qq .= ( ! empty( $qq ) ? " OR " : "" ) ."mm.`{$tmp}`".( $prm == 'o' ? "='{$val}'" : "LIKE '%,{$val},%'" );
+				}
+				if( $qq ) $qqq .= ( ! empty( $qqq ) ? " AND " : "" ) ."( {$qq} )";
+			}
+		}
+	}
+	if( $qqq ) $qqq= "AND ( {$qqq} )";
+
+	if( ! $pagenum || $pagenum <= 0 ) $pagenum= 1;
+
+	if( $category )
+	{
+		$category= $nc_core->db->escape( trim( $category ) );
+		$rr= $nc_core->db->get_results( "SELECT Subdivision_ID, Subdivision_Name, EnglishName FROM Subdivision
+			WHERE EnglishName='{$category}' AND Checked=1 LIMIT 1", ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			$category_id= $rr[0]['Subdivision_ID'];
+			$category_name= $rr[0]['Subdivision_Name'];
+			$category_alias= $rr[0]['EnglishName'] .'/';
+			$podcategory_alias= $category_alias;
+		}
+	}
+	if( $podcategory )
+	{
+		$podcategory= $nc_core->db->escape( trim( $podcategory ) );
+		$rr= $nc_core->db->get_results( "SELECT Subdivision_ID, Subdivision_Name, EnglishName FROM Subdivision
+			WHERE Parent_Sub_ID={$category_id} AND EnglishName='{$podcategory}' AND Checked=1 LIMIT 1", ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			$podcategory_id= $rr[0]['Subdivision_ID'];
+			$podcategory_name= $rr[0]['Subdivision_Name'];
+			$podcategory_alias= $category_alias . $rr[0]['EnglishName'] .'/';
+			//$category_id= $podcategory_id;
+		}
+	}
+
+
+
+
+	$print .= '<div class="pathway">';
+	$print .= '<div class="pw_itm pwi_home"><a href="https://'.$nc_core->url->get_parsed_url('host').'/f/"><svg class="svgicon"><use xlink:href="assets/images/symbol-defs.svg#icon-home"></use></svg></a></div>';
+	if( ! $category_id && ! $podcategory_id && ! $nc_core->subdivision->scorn_itemid)
+		$print .= '<div class="pw_itm pwi_page">Каталог фотообоев</div>';
+			else $print .= '<div class="pw_itm pwi_link"><a href="'.$basecategory.'/">Каталог фотообоев</a></div><div class="pw_itm pwi_tire">&mdash;</div>';
+	if( $category_id )
+	{
+		if( ! $podcategory_id) $print .= '<div class="pw_itm pwi_page">'.$category_name.'</div>';
+			else $print .= '<div class="pw_itm pwi_link"><a href="'.$basecategory.'/'.$category_alias.'">'.$category_name.'</a></div><div class="pw_itm pwi_tire">&mdash;</div>';
+	}
+	if($podcategory_id)
+	{
+		$print .= '<div class="pw_itm pwi_page">'.$podcategory_name.'</div>';
+	}
+	$print .= '</div>';
+
+
+	$h1= 'Каталог фотообоев';
+	if($category_name) $h1= $category_name;
+	if($podcategory_name) $h1= $podcategory_name;
+	$print .= '<div class="pagetitle catalog_h1"><h1>'. $h1 .'</h1></div>';
+
+
+
+
+
+	$print .= '<script>
+(function($){
+	$(document).ready(function(){
+		if( $( ".cat_categories" ).length )
+		{
+			var elem= $( ".cat_categories" );
+			var elem2= $( ".cat_categories .cat_categories_scrll" );
+			var elemWidth= elem.outerWidth( true ) - 100;
+			var itemWidth= $( ".catcat_itm", elem2 ).outerWidth( true );
+			var elem2Width= $( ".catcat_itm", elem2 ).length * itemWidth;
+			elem2.width( elem2Width );
+			elem.mousemove(function(e){
+				var left = (e.pageX - elem.offset().left - 100) * (elem2Width-elemWidth) / elemWidth;
+				elem.scrollLeft(left);
+			});
+			$( ".catcat_lft" ).click(function(){
+				elem.scrollLeft( elem.scrollLeft() - itemWidth );
+			});
+			$( ".catcat_rght" ).click(function(){
+				elem.scrollLeft( elem.scrollLeft() + itemWidth );
+			});
+		}
+	});
+})(jQuery);
+	</script>';
+
+	$for_query= "";
+	$rr= $nc_core->db->get_results( "SELECT sd.*, mm.CatImage FROM Subdivision AS sd
+		LEFT JOIN Sub_Class AS sb ON sb.Subdivision_ID=sd.Subdivision_ID AND sb.Class_ID=181 AND sb.Checked=1
+		LEFT JOIN Message181 AS mm ON mm.Subdivision_ID=sd.Subdivision_ID AND mm.Sub_Class_ID=sb.Sub_Class_ID AND mm.Checked=1
+			WHERE sd.Parent_Sub_ID={$category_id} AND sd.Checked=1 GROUP BY sd.Subdivision_ID ORDER BY sd.Priority", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$print .= '<div class="cat_categories_wrapper"><div class="cat_categories"><div class="cat_categories_scrll">';
+		foreach($rr AS $row)
+		{
+			$for_query .= " OR mm.Subdivision_ID='".$row[ 'Subdivision_ID' ]."'";
+
+			$CatImage= explode( ':', $row[ 'CatImage' ] );
+			$CatImage= ImgCrop72( 'netcat_files/'. $CatImage[ 3 ], 175, 135, true );
+
+			$print .= '<div class="catcat_itm"><a href="'.$basecategory.'/'. $category_alias . $row[ 'EnglishName' ] .'/'.( $filterprms ? 'x/'.$filterprms.'/' : '' ).'">
+				<div class="catcat_img"><img src="'. $CatImage .'" /></div>
+				<div class="catcat_nm">'. $row[ 'Subdivision_Name' ] .'</div>
+			</a></div>';
+		}
+		$print .= '<div class="clr">&nbsp;</div></div></div>';
+		$print .= '<div class="catcat_strlk catcat_lft">&nbsp;</div><div class="catcat_strlk catcat_rght">&nbsp;</div>';
+		$print .= '</div>';
+	}
+	if( $podcategory_id ) $for_query= "AND mm.Subdivision_ID='{$podcategory_id}'";
+
+
+	$print .= '<div class="scalc_myfile scalc_myfile_floatnone font2">Загрузить свое изображение '.icon('upload').'
+		<input id="scalc_myfile" type="file" /></div><div class="clr">&nbsp;</div>';
+
+
+	if( $category_id && ! $podcategory_id ) $for_query= "AND ( mm.Subdivision_ID='{$category_id}'". $for_query ." )";
+
+	if( $podcategory_id ) $category_id= $podcategory_id;
+
+	$rr= $nc_core->db->get_results( "SELECT COUNT(mm.Subdivision_ID) AS cc FROM Message181 AS mm
+		WHERE 1=1 {$for_query} {$qqq} AND mm.Checked=1", ARRAY_A);
+	if(is_array($rr) && count($rr)) $pages= ceil( $rr[0]['cc'] / $items_on_page );
+	if( $pagenum > $pages ) $pagenum= $pages;
+
+	$rr= $nc_core->db->get_results( "SELECT mm.* FROM Message181 AS mm
+		WHERE 1=1 {$for_query} {$qqq} AND mm.Checked=1 ORDER BY mm.Priority LIMIT ".( ($pagenum-1)*$items_on_page ).",{$items_on_page}", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		foreach($rr AS $row)
+		{
+			$CatImage= explode( ':', $row[ 'CatImage' ] );
+			$CatImage_mini= ImgCrop72( 'netcat_files/'.$CatImage[3], 175, 135, true);
+			//$CatImage_mini= ImgCrop72( 'netcat_files/'.$CatImage[3], 175, 135, true );
+			//$CatImage_zoom= ImgCrop72( 'netcat_files/'.$CatImage[3], 999, 999 );
+			$CatImage_zoom= 'netcat_files/'.$CatImage[3];
+
+			//$print .= print_r( $nc_core->subdivision->get_by_id( $row[ 'Subdivision_ID' ] ) );
+			$itemurl= $nc_core->subdivision->get_by_id( $row[ 'Subdivision_ID' ] );
+			$itemurl= $itemurl[ 'Hidden_URL' ];
+
+			$print .= '<div class="catitem catitem_'. $row[ 'Message_ID' ] .'" data-itemid="'. $row[ 'Message_ID' ] .'"
+					data-url="'. $itemurl . $row[ 'CatArticle' ] .'/" data-art="'. $row[ 'CatArticle' ] .'">
+				<div class="ci_img"><img src="'. $CatImage_mini .'" alt="'. addslashes( $row[ 'CatName' ] ) .'" /></div>
+				<div class="ci_art"><a href="'. $itemurl . $row[ 'CatArticle' ] .'/">'. $row[ 'CatArticle' ] .'</a></div>
+				<div class="ci_zoom"><a class="imagelightbox" href="'. $CatImage_zoom .'">&nbsp;</a></div>
+				<div class="ci_btt">
+					<div class="ci_slct font2">Рассчитать</div>
+					<div class="ci_fvrt '.($_SESSION[ 'catalog_user_favorite' ][ $row[ 'CatArticle' ] ] ? 'ci_fvrt_2' : '' ).'">'.icon('heart-o','hearto').''.icon('heart','heart').'</div>
+				</div>
+			</div>';
+		}
+		$print .= '<div class="clr">&nbsp;</div>';
+	}
+
+	if( $pages > 1 )
+	{
+		$print .= '<div class="catalog_pages">';
+
+		$print .= '<div class="catpg_tchki catpg_first">&nbsp;</div>';
+
+		$prev= $pagenum - 1; if( $prev <= 1 ) $prev= 0;
+		if( $prev ) $print .= '<div class="catlft_prmval catpg_strelk catlft_pg catlft_prmval__pg" data-prm="pg" data-tpe="one" data-val="'. $prev .'">«</div>';
+
+		$visible_ot= $pagenum - 5; if( $visible_ot < 1 ) $visible_ot= 1;
+		$visible_do= $pagenum + 5; if( $visible_do > $pages ) $visible_do= $pages;
+
+		for( $pp= 1; $pp <= $pages; $pp++ )
+		{
+			if( $pp >= 3 && $pp < $visible_ot )
+			{
+				if( ! $first )
+				{
+					$print .= '<div class="catpg_tchki">...</div>';
+					$first= true;
+				}
+				continue;
+			}
+			if( $pp <= $pages - 2 && $pp > $visible_do )
+			{
+				if( ! $second )
+				{
+					$print .= '<div class="catpg_tchki">...</div>';
+					$second= true;
+				}
+				continue;
+			}
+
+			$print .= '<a href="'. $basecategory .'/'. $url_category .'x/pg-'. $pp .'/" class="catlft_prmval catlft_pg catlft_prmval__pg '.( $pagenum == $pp ? 'ctft_param_val_selected' : '' ).' font2" data-prm="pg" data-tpe="one" data-val="'. $pp .'" '.( $pagenum == $pp ? 'data-selected="y"' : '' ).'>'. $pp .'</a>';
+		}
+
+		$next= $pagenum + 1; if( $next >= $pages ) $next= 0;
+		if( $next ) $print .= '<div class="catlft_prmval catpg_strelk catlft_pg catlft_prmval__pg" data-prm="pg" data-tpe="one" data-val="'. $next .'">»</div>';
+
+		$print .= '<div class="clr">&nbsp;</div></div>';
+	}
+
+	$print= '<div class="catalog" data-categorypage="'. $basecategory .'/'. $url_category .'" data-catalogpage="y">'. $print .'</div>';
+
+	$print .= '<script type="text/javascript" src="'.Compress('assets/js/oboi_catalog_itempage.js').'"></script>';
+
+	return $print;
+}
+
+
+
+function OBOI_Catalog_Item()
+{
+	global $nc_core;
+
+	$basecategory= '/f/fcatalog';
+
+	$itemid= $nc_core->subdivision->scorn_itemid;
+	if( ! $itemid ) $itemid= $_POST['itemart'];
+	$itemid= $nc_core->db->escape($itemid);
+
+	if($itemid=='w0000000')
+	{
+		$uploadeduserfile_flag= true;
+		$image0= $_SESSION['oboiusersfiles'];
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.'/'.$image0)) return;
+		$image= ImgCrop72($image0, 652, 503, true);
+	}else{
+		$rr= $nc_core->db->get_results("SELECT * FROM Message181 WHERE CatArticle='{$itemid}' AND Checked=1 LIMIT 1",ARRAY_A);
+		if( ! is_array($rr) || ! count($rr)) return;
+		$item= $rr[0];
+
+		$item['CatImage']= explode(':', $item['CatImage']);
+		$image0= 'netcat_files/'.$item['CatImage'][3];
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.'/'.$image0)) return;
+		$image= ImgCrop72($image0, 652, 503, true);
+	}
+
+	$print .= '<div class="sccalc_wrapper">';
+
+	$print .= '<div class="sccalc_center">
+			<a class="scalc_myfile_a font2" href="'.$basecategory.'/'.$_SESSION['f_catalog_filter_memory'].'">« Каталог фотообоев</a>
+			<div class="scalc_myfile font2">Загрузить свое изображение '.icon('upload').'<input id="scalc_myfile" type="file" /></div>
+			<div class="clr">&nbsp;</div>
+			<div class="scalc_myfiletxt"></div>';
+
+	$rr= $nc_core->db->get_results("SELECT * FROM Classificator_CatTextures WHERE Checked=1 ORDER BY CatTextures_Priority", ARRAY_A);
+	if(is_array($rr) && count($rr))
+	{
+		$print .= '<div class="sccalc_wpbox">';
+		$print .= '<div class="sccalc_wptit font2">Текстура</div>';
+		foreach($rr AS $row)
+		{
+			if( ! file_exists( $nc_core->DOCUMENT_ROOT .'/assets/images/wallpapers/wall-'. $row[ 'CatTextures_ID' ] .'.png' ) ) continue;
+			$print .= '<div class="sccalcwp_item" data-wallp="'. $row[ 'CatTextures_ID' ] .'" data-wallpimg="wall-'. $row[ 'CatTextures_ID' ] .'.png">
+				<div class="sccalcwpi_img" style="background:url(\'assets/images/wallpapers/wall-'. $row[ 'CatTextures_ID' ] .'.png\') center center;">&nbsp;</div>
+				<div class="sccalcwpi_name font2">'. $row[ 'CatTextures_Name' ] .'</div>
+			</div>';
+		}
+		$print .= '<br />';
+		$print .= '</div>';
+	}
+
+	if($itemid!='w0000000') $print .= '<div style="font-size:18px;font-weight:100;padding:20px 0;">Арт. '.$itemid.'</div>';
+
+	$print .= '<div class="sccalc_imgwrpp">
+				<div class="sccalc_load"><img src="template/images/loadgif.gif" /></div>
+				<div class="sccalc_imgbox">
+					<div class="sccalc_img"><img src="'.$image.'"></div>
+					<div class="sccalc_wallp">&nbsp;</div>
+					<div class="sccalc_selinterior">&nbsp;</div>
+					<div class="sccalc_crop">
+						<div class="sccalcc_kub" data-setww="325" data-sethh="250" data-settype="ww">
+							<div class="sccalcck_tblr sccalcck_ll">&nbsp;</div>
+							<div class="sccalcck_tblr sccalcck_rr">&nbsp;</div>
+							<div class="sccalcck_tblr sccalcck_tt">&nbsp;</div>
+							<div class="sccalcck_tblr sccalcck_bb">&nbsp;</div>
+						</div>
+					</div>
+				</div>
+			</div>';
+
+
+	$print .= '<div class="sccalc_form">';
+	$print .= '<form id="scalc_form" action="" method="post">';
+
+
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab"></div>
+		<div class="sccalc_fr_inp font2 scalc_101">Укажите размер</div>
+		<br /></div>';
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab font2">Ширина*</div>
+		<div class="sccalc_fr_inp"><input id="size-width" class="size-value value-width" type="text" name="width" value="325" /> см</div>
+		<br /></div>';
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab font2">Высота</div>
+		<div class="sccalc_fr_inp"><input id="size-height" class="size-value value-height" type="text" name="height" value="250" /> см</div>
+		<br /></div>';
+
+
+
+	$print .= '<div class="sccalc_interiors_tit">Посмотрите фотообои в интерьере</div>';
+	$print .= '<div class="sccalc_interiors_wrapper"><div class="sccalc_interiors">';
+	$interiors_folder= 'assets/images/interiors/';
+	$print .= '<div class="sccalc_intr"><span>Убрать<br />интерьер</span></div>';
+	$ii= 1;
+	while(file_exists($nc_core->DOCUMENT_ROOT.'/'.$interiors_folder.'interior-'.$ii.'.png'))
+	{
+		$print .= '<div class="sccalc_intr" style="background-image:url(\''.ImgCrop72($image0, 150, 115, true).'\');"><img src="'.$interiors_folder.'interior-'.$ii.'.png" /></div>';
+		$ii++;
+	}
+	$print .= '<div class="clr">&nbsp;</div></div></div>';
+
+
+
+
+	$print .= '<div class="scalc_100"><p><b>*</b> Для печати используются флизелиновые и&nbsp;бумажные обои с&nbsp;виниловым покрытием ведущих европейских производителей. Максимальная ширина одного печатного полотна&nbsp;&mdash; 105&nbsp;см, а&nbsp;высота не&nbsp;ограничена. Если ваше изображение шире, мы&nbsp;делим его на&nbsp;равные части. К&nbsp;примеру, если вам необходима ширина 150&nbsp;см, мы&nbsp;печатаем изображение частями по&nbsp;75&nbsp;см.</p></div>';
+
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab"></div>
+		<div class="sccalc_fr_inp font2 scalc_101">Тип текстуры</div>
+		<br /></div>';
+	$print .= '<div class="sccalc_f_row"><label>
+		<div class="sccalc_fr_lab sccalc_fr_lab2 scalcradio typeprintradio"><input type="radio" checked="checked" name="typeprint" value="1" /></div>
+		<div class="sccalc_fr_inp">Премиум&nbsp;&mdash; 1290&nbsp;руб. за&nbsp;кв. м&nbsp;<span>(латексная печать на&nbsp;фактурных обоях)</span></div>
+		</label><br /></div>';
+	$print .= '<div class="sccalc_f_row"><label>
+		<div class="sccalc_fr_lab sccalc_fr_lab2 scalcradio typeprintradio"><input type="radio" name="typeprint" value="2" /></div>
+		<div class="sccalc_fr_inp">Стандарт&nbsp;&mdash; 990&nbsp;руб. за&nbsp;кв. м&nbsp;<span>(латексная печать на&nbsp;гладком флизелине)</span></div>
+		</label><br /></div>';
+
+	$print .= '<div style="height:30px;"></div>';
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab"></div>
+		<div class="sccalc_fr_inp font2 scalc_101" style="padding-bottom:10px;">Стоимость</div>
+		<br /></div>';
+	$print .= '<div class="sccalc_f_row sccalc_fr_sum">
+		<div class="sccalc_fr_lab"></div>
+		<div id="scalc_summ" class="sccalc_fr_inp font2"><span class="price">10 781</span> <span class="ruble">руб.</span></div>
+		<br /></div>';
+
+	$print .= '<div style="height:30px;"></div>';
+	$print .= '<div class="sccalc_f_row">
+		<div class="sccalc_fr_lab"></div>
+		<div class="sccalc_fr_inp"><button class="addtoshopbasket font2" type="button">Добавить в корзину</button><div class="svgloading"></div></div>
+		<br /></div>';
+	$print .= '';
+
+	$print .= '<input type="hidden" id="scalc_itemid" name="itemid" value="'.$itemid.'" />
+		<input type="hidden" id="scalc_idwallp" name="idwallp" value="" />
+		<input type="hidden" id="scalc_userfile" name="designfile" value="'.$image0.'" />
+		<input type="hidden" id="scalc_kub_ll" name="kub_ll" value="0" />
+		<input type="hidden" id="scalc_kub_tt" name="kub_tt" value="0" />
+		<input type="hidden" id="scalc_kub_ww" name="kub_ww" value="0" />
+		<input type="hidden" id="scalc_kub_hh" name="kub_hh" value="0" />
+	</form>';
+
+	$print .= '</div>';
+	$print .= '</div>';
+	$print .= '</div>';
+
+	$print .= '<script type="text/javascript" src="'.Compress('assets/js/oboi_catalog_itempage.js').'"></script>';
+
+	return $print;
+}
+//---------------------------- OBOI CATALOG -------------------------
+
+
+
+
+
+
+
+
+
+
+
+// FUNCTIONS --------------------------------------------------------
 
 
 function megaForm_Files()
@@ -2747,7 +3657,7 @@ function text_gradient($text, $from, $to)
 	return $result;
 }
 
-function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $wm=false, $fullpath=false, $quality=80, $r=false)
+function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $wm=false, $fullpath=false, $quality=80, $toimg=false, $r=false)
 {
 	global $nc_core;
 	// v7.2
@@ -2821,7 +3731,7 @@ function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $w
 	{
 		$toimg= trim(urldecode($toimg));
 		$toimg= ltrim($toimg, DIRECTORY_SEPARATOR);
-		$toimg= ltrim($toimg, $base);
+		// $toimg= ltrim($toimg, $base);
 	}
 	if( ! file_exists($root.$img) || ! is_file($root.$img))
 	{
