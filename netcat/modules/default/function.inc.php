@@ -1,6 +1,7 @@
 <?php
 
-// 08.01.2017
+// 13.01.2017
+
 
 
 /*
@@ -28,6 +29,9 @@
 function YaKa($info)
 {
 	$infos= array(
+		'shopid'       => '',
+		'scid'         => '',
+		'shoppassword' => '',
 	);
 	return $infos[$info];
 }
@@ -50,6 +54,16 @@ function _AJAX()
 	if($action=='catalog_itempage')
 	{
 		print OBOI_Catalog_Item();
+	}
+	if($action=='catalog_to_favorite')
+	{
+		if( ! $_SESSION['catalog_user_favorite'][$_POST['itemart']]) $_SESSION['catalog_user_favorite'][$_POST['itemart']]= $_POST['itemart'];
+		print OBOI_Favorite();
+	}
+	if($action=='clear_favorite')
+	{
+		$_SESSION['catalog_user_favorite']= array();
+		print OBOI_Favorite();
 	}
 
 
@@ -339,7 +353,7 @@ function _AJAX()
 		if(strpos($chunk,',') !== false) $chunk= substr($chunk,strpos($chunk,',')+1);
 		$chunk= base64_decode($chunk);
 		$tmpfolder= '/assets/files/oboiusersfiles/'.$code.'/';
-		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder)) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder, 0777, true);
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.$tmpfolder.'crop/')) mkdir($nc_core->DOCUMENT_ROOT.$tmpfolder.'crop/', 0777, true);
 		
 		$fn= trim(urldecode($_GET['fn']));
 
@@ -638,7 +652,8 @@ function _AJAX()
 				$secret .= $code.(substr($code,1)/3.1415).time().$order['itogo'].$order['user'].$order['phone'].$order['email'].$order['pvz'].$order['useraddress'].rand(100,999);
 				$secret= md5($secret);
 
-				$checkoutresult= $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'), checkout='".time()."', secret='{$secret}'
+				$checkoutresult= $nc_core->db->query("UPDATE BN_Shop_Order SET status='5', logs=CONCAT(logs,'\n".date('d.m.Y, H:i')." | Заказ оформлен'),
+					checkout='".time()."', secret='{$secret}'
 					WHERE code='{$code}' AND status='1' LIMIT 1");
 				if( ! $checkoutresult) exit();
 
@@ -819,10 +834,26 @@ function _AJAX()
 
 						$mail5 .= '<tr class="row">
 							<td class="npp">'.($key+1).'</td>
-							<td class="name"><div>'.$category.'</div><div>'.$row['title'] .($params['description']?' ('.$params['description'].')':''). '</div><div>'.$options.'</div></td>
+
+							<td class="name">
+								<div>'.$category.'</div>
+								<div>'.$row['title'] .($params['description']?' ('.$params['description'].')':''). '</div>
+								<div>'.$options.'</div>';
+
+						if($params['image'])
+						{
+							$mail5 .= '<div><a target="_blank" href="https://'.$nc_core->url->get_parsed_url('host').'/'.$params['imagecrop'].'">Изображение</a></div>';
+							$mail5 .= '<div><a target="_blank" href="https://'.$nc_core->url->get_parsed_url('host').'/'.$params['image'].'">Изображение</a></div>';
+						}
+
+						$mail5 .= '</td>
+
 							<td class="sht">'.$row['ed'].'</td>
+
 							<td class="price"><span>'.Price($row['price']).'</span>&nbsp;<span>руб.</span></td>
+
 							<td class="cc">'.$row['count'].'</td>
+
 							<td class="sum"><span>'.Price($row['price']*$row['count']).'</span>&nbsp;<span>руб.</span></td>
 						</tr>';
 					}
@@ -861,6 +892,7 @@ function _AJAX()
 	{
 		shopBasketCheck_Table();
 		shopBasketCheck_Items();
+		$code= getShopOrderStatus_1();
 
 		$catid          = intval($_GET['catid']);
 		$kbid           = intval($_POST['kbid']);
@@ -889,7 +921,7 @@ function _AJAX()
 			{
 				$row= $row[0];
 
-				$uniq= $row['name'];
+				$uniq= $row['name'].'_';
 
 				$options_value= 0;
 				if($row['range']=='y')
@@ -911,14 +943,14 @@ function _AJAX()
 							}
 						}
 					}
-					$uniq .= $options_value;
+					$uniq .= $options_value.'_';
 
 					$ed= $options_value.' '.(strpos($row['edition'], 'м2')!==false ? 'м2' : 'шт.');
 
 					if( ! $options_value) exit();
 
 				}else{
-					$uniq .= $row['edition'];
+					$uniq .= $row['edition'].'_';
 					$ed= $row['edition'];
 				}
 
@@ -935,7 +967,7 @@ function _AJAX()
 				{
 					foreach($params['options'] AS $row2)
 					{
-						$uniq .= $row2['type'] . $row2['name'] . $row2['subname'];
+						$uniq .= $row2['type'] .'_'. $row2['name'] .'_'. $row2['subname'].'_';
 					}
 				}
 
@@ -950,7 +982,6 @@ function _AJAX()
 					}
 				}
 
-				$code= getShopOrderStatus_1();
 				$uniq= md5($uniq);
 
 				$row['name']= $nc_core->db->escape($row['name']);
@@ -972,31 +1003,94 @@ function _AJAX()
 		shopBasketCheck_Sum();
 	}
 
-	if($action=='shopAddToBasket')
+	if($action=='shopAddToBasketOboi')
 	{
 		shopBasketCheck_Table();
 		shopBasketCheck_Items();
+		$code= getShopOrderStatus_1();
 
-		$width            = intval($_GET['width']);
+		$width            = intval($_POST['width']);
 		$height           = intval($_POST['height']);
 		$typeprint        = ($_POST['typeprint'] == 2?2:1);
 		$itemid           = $_POST['itemid'];
 		$idwallp          = intval($_POST['idwallp']);
-		$designfile       = $_SESSION['oboiusersfiles']; //$_POST['designfile'];
 		$kub_ll           = intval($_POST['kub_ll']);
 		$kub_tt           = intval($_POST['kub_tt']);
 		$kub_ww           = intval($_POST['kub_ww']);
 		$kub_hh           = intval($_POST['kub_hh']);
 
-		if($idwallp='w0000000' && ! file_exists($nc_core->DOCUMENT_ROOT.'/'.$designfile))
-			$error .= '';
-		if( ! $width || ! $height) $error .= '';
+		if($itemid=='w0000000')
+		{
+			$designfile= $_SESSION['oboiusersfiles'];
+		}else{
+			$itemid= $nc_core->db->escape($itemid);
+			$row= $nc_core->db->get_results( "SELECT CatImage FROM Message181 WHERE CatArticle='{$itemid}' AND Checked=1 LIMIT 1", ARRAY_A);
+			if(is_array($row) && count($row))
+			{
+				$designfile= explode(':', $row[0]['CatImage']);
+				$designfile= 'netcat_files/'.$designfile[3];
+			}
+		}
+		$designfile_crop= ImgCrop72($designfile,652,503,true);
+
+		$row= $nc_core->db->get_results("SELECT * FROM Classificator_CatTextures WHERE CatTextures_ID={$idwallp} AND Checked=1 LIMIT 1", ARRAY_A);
+		if(is_array($row) && count($row)) $wallp= $row[0]['CatTextures_Name'];
+
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.'/'.$designfile))
+			$error .= '<div>'.icon('warning').' Выберите изображение из каталога или загрузите свое</div>';
+		if( ! $width || ! $height) $error .= '<div>'.icon('warning').' Задайте размер</div>';
+
+		if($error)
+		{
+			print '{"result":"err","txt":"'.addslashes($error).'<br />"}';
+			exit();
+		}
+
+		$pricebase= ($typeprint==2 ? 990 : 1290);
+		$area= $width * $height;
+		if($area<10000) $area= 10000;
+		$price= round($area /10000 *$pricebase);
+
+		$uniq= 'Фотообои'.'_'.$width.'_'.$height.'_'.$designfile.'_'.$typeprint.'_'.$idwallp.'_'.$kub_ll.'_'.$kub_tt.'_'.$kub_ww.'_'.$kub_hh.'_';
+		$uniq= md5($uniq);
+
+		$ext= substr($designfile, strpos($designfile,'.'));
+		$cropfolder= 'assets/files/oboiusersfiles/'.$code.'/crop/';
+		if( ! file_exists($nc_core->DOCUMENT_ROOT.$cropfolder)) mkdir($nc_core->DOCUMENT_ROOT.$cropfolder, 0777, true);
+		ImgRamka10($designfile_crop, $cropfolder.$uniq.$ext, $kub_ll, $kub_tt, $kub_ww, $kub_hh);
+
+		$params['image']= $designfile;
+		$params['imagecrop']= $cropfolder.$uniq.$ext;
+		$params['params']= array(
+			'Арт.: '.$itemid,
+			'Размер: '.$width.' x '.$height.' см',
+			'Тип текстуры: '.($typeprint==2 ? 'Стандарт' : 'Премиум'),
+		);
+		if($wallp) $params['params'][]= 'Текстура: '. $wallp;
+
+		$params= serialize($params);
+		$params= $nc_core->db->escape($params);
+		
+		$rr= $nc_core->db->get_results("SELECT id FROM BN_Shop_Basket WHERE code='{$code}' AND uniq='{$uniq}' LIMIT 1",ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			$nc_core->db->query("UPDATE BN_Shop_Basket SET count=count+1 WHERE id={$rr[0][id]} LIMIT 1");
+		}else{
+			$nc_core->db->query("INSERT INTO BN_Shop_Basket SET code='{$code}', type='fotooboi', title='Фотообои', count=1,
+				price='{$price}', params='{$params}', dt=".time().", uniq='{$uniq}'");
+		}
+		shopBasketCheck_Sum();
+
+		print '{"result":"ok"}';
+		exit();
 	}
 
 	if($action=='shopAddToBasketServices')
 	{
 		shopBasketCheck_Table();
 		shopBasketCheck_Items();
+		$code= getShopOrderStatus_1();
+
 		$itemid= intval($_GET['itemid']);
 		
 		$row= $nc_core->db->get_results("SELECT `name`,price,description FROM Message180 WHERE Message_ID={$itemid} AND Checked=1 LIMIT 1",ARRAY_A);
@@ -1007,9 +1101,8 @@ function _AJAX()
 		$price= str_replace(',', '.', $row['price']);
 		$price= preg_replace("/[^0-9\.]/", '', $price);
 
-		$uniq= $row['name'];
+		$uniq= $row['name'].'_';
 
-		$code= getShopOrderStatus_1();
 		$uniq= md5($uniq);
 
 		$row['name']= $nc_core->db->escape($row['name']);
@@ -1151,27 +1244,67 @@ function _AJAX()
 
 	if($action=='catalogSetStickers')
 	{
+/*
+0-1    = 1500  = 1600
+1-5    = 1200  = 1300
+5-10   = 800   = 900
+10-30  = 700   = 800
+30-50  = 600   = 700
+50-    = 590   = 690
+
+a2     = 0
+a3     = 1
+a4     = 3
+a5     = 4
+sz     = 5
+*/
 		$listi= array(
 			'a2' => 594*420,
 			'a3' => 420*297,
 			'a4' => 297*210,
 			'a5' => 210*148,
 		);
-		$prices= array(
-			array(0,  1,        1200),
-			array(1,  5,        1000),
-			array(5,  10,       900),
-			array(10, 30,       700),
-			array(30, 50,       680),
-			array(50, 99999999, 650),
+		$prices_listi= array(
+			'a2'   => 0,
+			'a3'   => 1,
+			'a4'   => 3,
+			'a5'   => 4,
+			'sz'   => 5,
 		);
+		$prices= array(
+			array(0,  1,        1600, 1600),
+			array(1,  5,        1300, 1300),
+			array(5,  10,       900,  900),
+			array(10, 30,       800,  800),
+			array(30, 50,       700,  700),
+			array(50, 99999999, 690,  690),
+		);
+
+		$row= $nc_core->db->get_results("SELECT catalogPrice FROM Subdivision WHERE Subdivision_ID=228 LIMIT 1",ARRAY_A);
+		if(is_array($row) && count($row))
+		{
+			$prices= array();
+			$pricelist= str_replace("\r",'',$row[0]['catalogPrice']);
+			$pricelist= explode("\n",$pricelist);
+			foreach($pricelist AS $row)
+			{
+				$row= preg_replace("/[^0-9-=asz]/",'',$row);
+				if(preg_match("/([0-9]+)-([0-9]*)=([0-9]+)=([0-9]+)/",$row,$matches)===1)
+				{
+					$prices[]= array($matches[1], ($matches[2]?$matches[2]:99999999), $matches[3], $matches[4]);
+
+				}elseif(preg_match("/([0-9asz]+)=([0-9]+)/",$row,$matches)===1){
+					$prices_listi[$matches[1]]= intval($matches[2]);
+				}
+			}
+		}
 
 
 		$visechka= ($_POST['visechka'] == 'n'?'n':'y');
 		$maket   = ($_POST['maket'] == 'n'?'n':'y');
 		$forma   = ($_POST['forma'] == 'krug'?'krug':(($_POST['forma']=='pryamoug'?'pryamoug':'slozhn')));
 		$ww      = intval($_POST['ww']);
-		$hh      = intval($_POST['hh']);
+		$hh      = intval($_POST['hh']); if($forma=='krug') $hh= $ww;
 		$ccn     = intval($_POST['ccn']);
 		$material= ($_POST['material'] == 'matov'?'matov':(($_POST['material']=='prozr'?'prozr':'glyan')));
 		$narezka = $_POST['narezka'];
@@ -1188,6 +1321,9 @@ function _AJAX()
 			if($forma=='krug' && ($ww>1200 || $hh>1200)) $error .= '<div>'.addslashes(icon('warning')).' Макс.диаметр 1,2&nbsp;метра</div>';
 		}
 
+		if($visechka=='n') $narezka= 'sz';
+		elseif($maket=='n') $narezka= 'a2';
+
 		if($visechka=='n' || $maket=='y')
 		{
 			if( ! $ww || ! $hh) $error .= '<div>'.addslashes(icon('warning')).' Укажите размер наклейки</div>';
@@ -1202,10 +1338,12 @@ function _AJAX()
 			$area /= 1000000;
 			if($area<0.5) $area= 0.5;
 		
-			foreach($prices AS $row) if($row[0]<$area && $area<=$row[1]) $price= $row[2];
+			foreach($prices AS $row) if($row[0]<$area && $area<=$row[1]) $price= ($visechka=='y'?$row[3]:$row[2]);
 			$price *= $area;
-			if($visechka=='y' && $maket=='y' && $forma=='slozhn') $price*=2;
+			if($visechka=='y' && $maket=='y' && $forma=='slozhn') $price*=1.5;
 			if($plenka=='y') $price*=1.5;
+
+			if($prices_listi[$narezka]) $price += $prices_listi[$narezka] *($maket=='y'?$ccn:$ccl);
 
 			$price_za= 0;
 			if($maket=='y') $price_za= round($price/$ccn,2);
@@ -1215,8 +1353,8 @@ function _AJAX()
 		{
 			$prmsname= array(
 				'visechka' => array(
-					'y' => 'С высечкой по контуру наклеек',
-					'n' => 'Без высечки',
+					'y' => 'С резкой по контуру наклеек',
+					'n' => 'Без резки по контуру',
 				),
 				'maket' => array(
 					'y' => 'Все наклейки одинаковые',
@@ -1243,6 +1381,7 @@ function _AJAX()
 
 			shopBasketCheck_Table();
 			shopBasketCheck_Items();
+			$code= getShopOrderStatus_1();
 
 			$catid= 228;
 			$name= 'Стикеры на пленке';
@@ -1250,8 +1389,7 @@ function _AJAX()
 			$priceqq= str_replace(',', '.', $price);
 			$priceqq= preg_replace("/[^0-9\.]/", '', $priceqq);
 
-			$code= getShopOrderStatus_1();
-			$uniq= $name.$visechka.$maket.$forma.$ww.$hh.$ccn.$material.$narezka.$ccl.$plenka;
+			$uniq= $name.'_'.$visechka.'_'.$maket.'_'.$forma.'_'.$ww.'_'.$hh.'_'.$ccn.'_'.$material.'_'.$narezka.'_'.$ccl.'_'.$plenka.'_';
 			$uniq= md5($uniq);
 
 			$params['params'][]= $prmsname['visechka'][$visechka];
@@ -1513,10 +1651,10 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 				$pp .= '<div class="stickers"><form>
 					<div class="sck_col sck_col1">
 						<div class="sck_opt sck_opt_visechka">
-							<div class="sck_o_lab">Высечка</div>
+							<div class="sck_o_lab">Резка</div>
 							<div class="sck_o_inp"><select name="visechka">
-								<option value="y">С высечкой по контуру наклеек</option>
-								<option value="n">Без высечки</option>
+								<option value="y">С резкой по контуру наклеек</option>
+								<option value="n">Без резки по контуру</option>
 							</select></div>
 							<br />
 						</div>
@@ -1542,7 +1680,7 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 
 						<div class="sck_opt sck_opt_wwhh">
 							<div class="sck_o_lab">Размер одной наклейки</div>
-							<div class="sck_o_inp"><input class="mini" type="text" name="ww" /> x <input class="mini" type="text" name="hh" />&nbsp;мм</div>
+							<div class="sck_o_inp"><input class="sck_opt_ww mini" type="text" name="ww" /> x <input class="sck_opt_hh mini" type="text" name="hh" />&nbsp;мм</div>
 							<br />
 						</div>
 
@@ -1844,6 +1982,8 @@ function _CATALOG($id, $onlytable=false, $markup=false, $editions_large=false, $
 				}
 			}
 
+			$pp .= nc_objects_list(258, 208, 'catid='.$row['id']);
+
 			$pp .= '<div style="height:40px;"></div>';
 		}
 	}
@@ -2084,7 +2224,7 @@ function shopHeaderBasket()
 	global $nc_core;
 	$sum= getShopOrderStatus_1("`sum`");
 	$sum= intval($sum);
-	return ($sum ? '<span '.$sum.'>'.Price($sum).'</span> <span class="ruble">руб</span>' : '<span>Корзина</span>');
+	return ($sum ? '<span>'.Price($sum).'</span> <span class="ruble">руб</span>' : '<span>Корзина</span>');
 }
 
 function shopBasketPage_Items()
@@ -2135,8 +2275,19 @@ function shopBasketPage_Items()
 				}
 			}
 
-			$pp .= '<div class="sbpi_itm '.($row['enabled']!='y'?'sbpi_itm_disabled':'').'" data-id="'.$row['id'].'">
-				<div class="sbpi_nm sbpi_row tiptop" title="'.$params['description'].'"><div>'.$category.'</div><div>'.$row['title'].'</div>'.$options.'</div>';
+			$pp .= '<div class="sbpi_itm '.($row['enabled']!='y'?'sbpi_itm_disabled':'').'" data-id="'.$row['id'].'">';
+
+			$pp .= '<div class="sbpi_nm sbpi_row tiptop" title="'.$params['description'].'">
+				<div class="sbpi_nm_img"><a class="imagelightbox" href="'.$params['imagecrop'].'">
+					<img src="'.ImgCrop72($params['image'],60,60,false,true).'" />
+				</a></div>
+				<div class="sbpi_nm_txt">
+					<div>'.$category.'</div>
+					<div>'.$row['title'].'</div>
+					'.$options.'
+				</div>
+				<br />
+			</div>';
 
 			if($row['enabled']!='y') $pp .= '<div class="sbpi_disabled sbpi_row">Товар с данными параметрами больше <nobr>не существует!</nobr><br />Его нельзя заказать.</div>';
 
@@ -2930,6 +3081,43 @@ function myCity_Init()
 
 
 
+function OBOI_Favorite()
+{
+	global $nc_core;
+
+	if( $_SESSION[ 'catalog_user_favorite' ] )
+	{
+		$qq= "";
+		foreach( $_SESSION[ 'catalog_user_favorite' ] AS $fav )
+		{
+			$fav= $nc_core->db->escape($fav);
+			$qq .= ( ! empty( $qq ) ? " OR " : "" ) ."mm.CatArticle='{$fav}'";
+		}
+		$rr= $nc_core->db->get_results( "SELECT mm.*, sd1.EnglishName AS EnglishName1, sd2.EnglishName AS EnglishName2 FROM Message181 AS mm
+			INNER JOIN Subdivision AS sd2 ON sd2.Subdivision_ID=mm.Subdivision_ID
+			INNER JOIN Subdivision AS sd1 ON sd1.Subdivision_ID=sd2.Parent_Sub_ID
+			WHERE ( {$qq} ) AND mm.Checked=1", ARRAY_A);
+		if(is_array($rr) && count($rr))
+		{
+			foreach($rr AS $row)
+			{
+				$row[ 'CatImage' ]= explode( ':', $row[ 'CatImage' ] );
+				$image= 'netcat_files/'. $row[ 'CatImage' ][ 3 ];
+				if( ! file_exists( $nc_core->DOCUMENT_ROOT .'/'. $image ) ) continue;
+				$image= ImgCrop72( $image, 45, 45, false, true );
+
+				$url= '/f/fcatalog/';
+				if( $row[ 'EnglishName1' ] != 'fcatalog' ) $url .= $row[ 'EnglishName1' ] .'/';
+				$url .= $row[ 'EnglishName2' ] .'/';
+
+				$catlft_favorite .= '<img class="catitem_'. $row[ 'Message_ID' ] .'" src="'. $image .'" data-itemart="'. $row[ 'CatArticle' ] .'" data-url="'. $url . $row[ 'CatArticle' ] .'/" />';
+			}
+		}
+	}
+	if( $catlft_favorite ) $catlft_favorite= '<button class="favorite_clear" type="button">Очистить</button><br />'. $catlft_favorite;
+		else $catlft_favorite= '<div class="txt">Добавьте&nbsp;изображения из&nbsp;каталога нажав&nbsp;на&nbsp;'.icon('heart-o').'</div>';
+	return $catlft_favorite;
+}
 
 //---------------------------- OBOI Left Filter ---------------------
 function OBOI_LeftFilter()
@@ -2941,10 +3129,13 @@ function OBOI_LeftFilter()
 
 	if( ! $nc_core->subdivision->scorn_itemid)
 	{
-		$url= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
-		$url= substr($url, strlen($basecategory)+1);
+		$originalurl= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
+		$url= substr($originalurl, strlen($basecategory)+1);
 		$_SESSION['f_catalog_filter_memory']= $url;
-	}else $url= $_SESSION['f_catalog_filter_memory'];
+	}else{
+		$originalurl= $_SESSION['f_catalog_filter_memory'];
+		$url= $originalurl;
+	}
 
 	$x_pos= strpos($url,'/x/');
 	if($x_pos!==false)
@@ -2990,6 +3181,7 @@ function OBOI_LeftFilter()
 		data-catalogpage="'.(strpos($nc_core->url->get_parsed_url('path'), $basecategory)===0?'y':'n').'">';
 
 	$pp .= '<div class="lm_tit font2"><span>Избранное</span></div>';
+	$pp .= '<div class="catlft_favorite">'.OBOI_Favorite().'</div>';
 
 	$rr= $nc_core->db->get_results("SELECT * FROM Subdivision WHERE Parent_Sub_ID=210 AND Checked=1 ORDER BY LabelColor DESC, Subdivision_Name",ARRAY_A);
 	if(is_array($rr) && count($rr))
@@ -3085,10 +3277,13 @@ function OBOI_Catalog()
 
 	if( ! $nc_core->subdivision->scorn_itemid)
 	{
-		$url= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
-		$url= substr($url, strlen($basecategory)+1);
+		$originalurl= (isset($_POST['filterprms']) ? $_POST['filterprms'] : $nc_core->url->get_parsed_url('path'));
+		$url= substr($originalurl, strlen($basecategory)+1);
 		$_SESSION['f_catalog_filter_memory']= $url;
-	}else $url= $_SESSION['f_catalog_filter_memory'];
+	}else{
+		$originalurl= $_SESSION['f_catalog_filter_memory'];
+		$url= $originalurl;
+	}
 
 	$x_pos= strpos($url,'/x/');
 	if($x_pos!==false)
@@ -3184,10 +3379,12 @@ function OBOI_Catalog()
 	}
 	$print .= '</div>';
 
-
-	$h1= 'Каталог фотообоев';
+	
 	if($category_name) $h1= $category_name;
 	if($podcategory_name) $h1= $podcategory_name;
+	$SEOPage= SEOPage('h1', $originalurl);
+	if($SEOPage) $h1= $SEOPage;
+	if( ! $h1) $h1= 'Каталог фотообоев';
 	$print .= '<div class="pagetitle catalog_h1"><h1>'. $h1 .'</h1></div>';
 
 
@@ -3336,6 +3533,10 @@ function OBOI_Catalog()
 
 	$print .= '<script type="text/javascript" src="'.Compress('assets/js/oboi_catalog_itempage.js').'"></script>';
 
+
+	$print .= '<div style="height:50px;">&nbsp;</div>'.SEOPage('text', $originalurl);
+
+
 	return $print;
 }
 
@@ -3396,7 +3597,6 @@ function OBOI_Catalog_Item()
 	if($itemid!='w0000000') $print .= '<div style="font-size:18px;font-weight:100;padding:20px 0;">Арт. '.$itemid.'</div>';
 
 	$print .= '<div class="sccalc_imgwrpp">
-				<div class="sccalc_load"><img src="template/images/loadgif.gif" /></div>
 				<div class="sccalc_imgbox">
 					<div class="sccalc_img"><img src="'.$image.'"></div>
 					<div class="sccalc_wallp">&nbsp;</div>
@@ -3430,6 +3630,7 @@ function OBOI_Catalog_Item()
 		<div class="sccalc_fr_inp"><input id="size-height" class="size-value value-height" type="text" name="height" value="250" /> см</div>
 		<br /></div>';
 
+	$print .= '<div class="scalc_100"><p><b>*</b> Для печати используются флизелиновые и&nbsp;бумажные обои с&nbsp;виниловым покрытием ведущих европейских производителей. Максимальная ширина одного печатного полотна&nbsp;&mdash; 105&nbsp;см, а&nbsp;высота не&nbsp;ограничена. Если ваше изображение шире, мы&nbsp;делим его на&nbsp;равные части. К&nbsp;примеру, если вам необходима ширина 150&nbsp;см, мы&nbsp;печатаем изображение частями по&nbsp;75&nbsp;см.</p></div>';
 
 
 	$print .= '<div class="sccalc_interiors_tit">Посмотрите фотообои в интерьере</div>';
@@ -3444,10 +3645,6 @@ function OBOI_Catalog_Item()
 	}
 	$print .= '<div class="clr">&nbsp;</div></div></div>';
 
-
-
-
-	$print .= '<div class="scalc_100"><p><b>*</b> Для печати используются флизелиновые и&nbsp;бумажные обои с&nbsp;виниловым покрытием ведущих европейских производителей. Максимальная ширина одного печатного полотна&nbsp;&mdash; 105&nbsp;см, а&nbsp;высота не&nbsp;ограничена. Если ваше изображение шире, мы&nbsp;делим его на&nbsp;равные части. К&nbsp;примеру, если вам необходима ширина 150&nbsp;см, мы&nbsp;печатаем изображение частями по&nbsp;75&nbsp;см.</p></div>';
 
 	$print .= '<div class="sccalc_f_row">
 		<div class="sccalc_fr_lab"></div>
@@ -3475,7 +3672,12 @@ function OBOI_Catalog_Item()
 	$print .= '<div style="height:30px;"></div>';
 	$print .= '<div class="sccalc_f_row">
 		<div class="sccalc_fr_lab"></div>
-		<div class="sccalc_fr_inp"><button class="addtoshopbasket font2" type="button">Добавить в корзину</button><div class="svgloading"></div></div>
+		<div class="sccalc_fr_inp">
+			<div class="sccalc_result"></div>
+			<button class="addtoshopbasket font2" type="button">Добавить в корзину</button>
+			<br />
+			<div class="svgloading"></div>
+		</div>
 		<br /></div>';
 	$print .= '';
 
@@ -3510,6 +3712,34 @@ function OBOI_Catalog_Item()
 
 // FUNCTIONS --------------------------------------------------------
 
+
+function SEOPage( $type, $url )
+{
+	global $nc_core;
+	$return= false;
+	$url= $nc_core->db->escape( $url );
+	$seopageinfo= $nc_core->db->get_results( "SELECT * FROM SEO_CatalogPages WHERE params='{$url}' AND enabled='y' LIMIT 1", ARRAY_A);
+	if(is_array($seopageinfo) && count($seopageinfo))
+	{
+		if( $type == 'meta' )
+		{
+			$return .= "\t";
+			$return .= '<title>'. $seopageinfo[0]['title'] .'</title>';
+			$return .= "\n\t";
+			$return .= '<meta name="description" content="'. $seopageinfo[0]['description'] .'" />';
+			$return .= "\n\t";
+			$return .= '<meta name="keywords" content="'. $seopageinfo[0]['keywords'] .'" />';
+			$return .= "\n";
+
+		}elseif( $type == 'text' ){
+			$return .= $seopageinfo[0]['text'];
+
+		}elseif( $type == 'h1' ){
+			$return .= $seopageinfo[0]['h1'];
+		}
+	}
+	return $return;
+}
 
 function megaForm_Files()
 {
@@ -3655,6 +3885,68 @@ function text_gradient($text, $from, $to)
 		$result .= '<span style="color:rgb('.$r.','.$g.','.$b.');">'.mb_substr($text, $ii, 1).'</span>';
 	}
 	return $result;
+}
+
+
+function ImgRamka10($img, $toimg, $xx=0, $yy=0, $ww=0, $hh=0)
+{
+	global $nc_core;
+
+	$img= urldecode( trim( $img ) );
+	$toimg= urldecode( trim( $toimg ) );
+	$xx= ( empty( $xx ) ? 0 : intval( $xx ) );
+	$yy= ( empty( $yy ) ? 0 : intval( $yy ) );
+	$ww= ( empty( $ww ) ? 0 : intval( $ww ) );
+	$hh= ( empty( $hh ) ? 0 : intval( $hh ) );
+
+	$slash= ( substr( $img, 0, 1 ) == '/' ? true : false );
+	if( ! $slash && substr( $toimg, 0, 1 ) == '/' ) $toimg= substr( $toimg, 1 );
+	$root= rtrim( $nc_core->DOCUMENT_ROOT, "/\\" ) . ( $slash ? '' : '/' );
+
+	if( ! file_exists( $root . $img ) || ! is_file( $root . $img ) ) return false;
+
+	$newimg_path= $root . $toimg;
+
+	if( filesize( $root . $img ) > 1024*1024*10 ) return $img;
+//========================================================================================
+	if( true )
+	{
+		$img1_info= @getimagesize( $root . $img );
+		if( ! $img1_info[ 1 ] ) return false;
+
+		if( $img1_info[ 2 ] == 1 ) $img1= @imagecreatefromgif( $root . $img );
+
+		elseif( $img1_info[ 2 ] == 2 ) $img1= @imagecreatefromjpeg( $root . $img );
+
+		elseif( $img1_info[ 2 ] == 3 ){
+			$img1= @imagecreatefrompng( $root . $img );
+			$png= true;
+		}
+
+		if( $png )
+		{
+			@imagealphablending( $img2, true );
+			@imagesavealpha( $img2, true );
+		}else{
+		}
+
+		$white= imagecolorallocate( $img1, 255, 255, 255 );
+		$black= imagecolorallocate( $img1, 0, 0, 0 );
+
+		imagerectangle( $img1, $xx, $yy, $xx+$ww, $yy+$hh, $white );
+		imagerectangle( $img1, $xx+1, $yy+1, $xx+$ww+1, $yy+$hh+1, $black );
+
+		if( $png ){
+			@imagepng( $img1, $newimg_path );
+		}elseif( $img1_info[ 2 ] == 1 ){
+			@imagegif( $img1, $newimg_path, 100 );
+		}elseif( $img1_info[ 2 ] == 2 ){
+			@imagejpeg( $img1, $newimg_path, 100 );
+		}
+		@chmod( $newimg_path, 0777 );
+		@imagedestroy( $img1 );
+	}
+	return true;
 }
 
 function ImgCrop72($img, $w=0, $h=0, $backgr=false, $fill=false, $bgcolor='', $wm=false, $fullpath=false, $quality=80, $toimg=false, $r=false)
